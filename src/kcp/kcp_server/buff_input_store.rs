@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::kcp_server::kcp_peer::KcpPeer;
+use super::kcp_peer::KcpPeer;
 use bytes::Bytes;
 use std::error::Error;
 use std::future::Future;
