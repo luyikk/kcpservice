@@ -287,6 +287,7 @@ dependencies = [
  "net2",
  "num_cpus",
  "tokio",
+ "xbinary",
 ]
 
 [[package]]
@@ -718,4 +719,13 @@ checksum = "d59cefebd0c892fa2dd6de581e937301d8552cb44489cdff035c6187cb63fa5e"
 dependencies = [
  "winapi 0.2.8",
  "winapi-build",
+]
+
+[[package]]
+name = "xbinary"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "392f719718ec22f96af379694f9cba9311e7fe8b8b3b359be01776347fa6d67f"
+dependencies = [
+ "bytes",
 ]
