@@ -116,5 +116,6 @@ impl KcpConfig {
         if let Some(fr) = self.fast_resend {
             k.set_fast_resend(fr);
         }
+        k.set_stream(self.stream)
     }
 }

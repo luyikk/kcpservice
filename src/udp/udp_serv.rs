@@ -116,8 +116,8 @@ impl<I, R, S> UdpServer<I, R, S>
         addr: &A,
     ) -> Result<std::net::UdpSocket, Box<dyn Error>> {
         let res = Self::make_udp_client(addr)?;
-        res.set_send_buffer_size(1784 * 10000)?;
-        res.set_recv_buffer_size(1784 * 10000)?;
+       // res.set_send_buffer_size(1784 * 10000)?;
+       // res.set_recv_buffer_size(1784 * 10000)?;
         Ok(res)
     }
 

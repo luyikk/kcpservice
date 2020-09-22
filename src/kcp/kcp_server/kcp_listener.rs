@@ -13,7 +13,7 @@ use crate::udp::{UdpServer, TokenStore};
 use log::*;
 use bytes::{Bytes, BytesMut, BufMut};
 use super::super::kcp_module::Kcp;
-use tokio::time::{delay_for, Instant};
+use tokio::time::delay_for;
 use std::future::Future;
 use tokio::net::udp::SendHalf;
 use ahash::AHashMap;
@@ -198,16 +198,8 @@ impl<S,R> KcpListener<S,R>
     ) -> Result<(), Box<dyn Error>> {
 
        if data.len()>=24{
-
            let  kcp_peer=Self::get_kcp_peer_and_input(&this, sender, addr, &data).await;
-           match kcp_peer {
-               Some(kcp_peer)=> {
-                   Self::recv_buff(this, kcp_peer).await?;
-               },
-               None=>{
-                   error!("not found kcp_peer {}",addr);
-               }
-           }
+           Self::recv_buff(this, kcp_peer).await?;
        }
        else if data.len()==4{
            // 申请CONV
@@ -223,7 +215,6 @@ impl<S,R> KcpListener<S,R>
     #[inline]
     async fn recv_buff(this:Arc<Self>, kcp_peer: Arc<KcpPeer<S>>)->Result<(), Box<dyn Error>> {
         while let Ok(len) = kcp_peer.peeksize().await {
-            kcp_peer.last_rev_time.store(chrono::Local::now().timestamp(), Ordering::Release);
             let mut buff = vec![0; len];
             if  kcp_peer.recv(&mut buff).await.is_ok() {
                 let p = this.buff_input.get() as usize;
@@ -238,19 +229,30 @@ impl<S,R> KcpListener<S,R>
     /// 读取下发的conv,返回kcp_peer 如果在字典类中存在返回kcp_peer
     /// 否则创建一个kcp_peer 绑定到字典类中
     #[inline]
-    async fn get_kcp_peer_and_input(this: &Arc<Self>, sender: Arc<Mutex<SendHalf>>, addr: SocketAddr, data: &[u8]) -> Option<Arc<KcpPeer<S>>> {
+    async fn get_kcp_peer_and_input(this: &Arc<Self>, sender: Arc<Mutex<SendHalf>>, addr: SocketAddr, data: &[u8]) -> Arc<KcpPeer<S>> {
         let mut conv_data = [0; 4];
         conv_data.copy_from_slice(&data[0..4]);
         let conv = u32::from_le_bytes(conv_data);
 
-        let kcp_peer = {
-            this.peers.lock().await.entry(conv).or_insert(Self::make_kcp_peer_ptr(conv, sender, addr, this.clone()).await).clone()
+        let kcp_peer:Arc<KcpPeer<S>> = {
+            let mut peers=this.peers.lock().await;
+            if let Some(peer)= peers.get(&conv){
+                peer.clone()
+            }
+            else{
+                let peer=Self::make_kcp_peer_ptr(conv, sender, addr, this.clone()).await;
+                peers.insert(conv,peer.clone());
+                peer
+            }
         };
 
         if let Err(er) = kcp_peer.input(data).await {
             error!("get_kcp_peer input is err:{}", er);
         }
-        return Some(kcp_peer)
+
+        kcp_peer.last_rev_time.store(chrono::Local::now().timestamp(), Ordering::Release);
+
+        return kcp_peer
     }
 
     /// 创建一个KCP_PEER 并存入 Kcp_peers 字典中
