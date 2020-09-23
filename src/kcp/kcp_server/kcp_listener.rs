@@ -95,7 +95,7 @@ impl<S,R> KcpListener<S,R>
         if let Some(udp_server) =self.udp_server.get() {
             self.update();
             self.cleanup();
-            return udp_server.start();
+            udp_server.start().await?;
         }
 
         Err("udp_server is nil".into())

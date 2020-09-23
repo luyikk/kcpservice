@@ -14,7 +14,8 @@ use tokio::time::{delay_for, Duration};
 pub struct ClientPeer{
     pub session_id:u32,
     pub kcp_peer:Weak<KcpPeer<Arc<ClientPeer>>>,
-    pub buff_pool:Mutex<BuffPool>
+    pub buff_pool:Mutex<BuffPool>,
+    pub is_open_zero:bool
 }
 
 impl Drop for ClientPeer{
@@ -29,7 +30,8 @@ impl ClientPeer{
         ClientPeer{
             session_id,
             kcp_peer,
-            buff_pool:Mutex::new(BuffPool::new(512*1024))
+            buff_pool:Mutex::new(BuffPool::new(512*1024)),
+            is_open_zero:false
         }
     }
 
@@ -79,7 +81,29 @@ impl ClientPeer{
             0xFFFFFFFF=>{
                 self.send(server_id,&reader).await?;
             },
+            0=>{
+                if !self.is_open_zero{
+                    self.kick();
+                    info!("Peer:{}-{:?} not open read data Disconnect it",self.session_id,self.get_addr());
+                    return Ok(())
+                }
+
+
+            },
+            0xEEEEEEEE=>{
+                if !self.is_open_zero{
+                    self.kick();
+                    info!("Peer:{}-{:?} not open read data Disconnect it",self.session_id,self.get_addr());
+                    return Ok(())
+                }
+
+            },
             _=>{
+                if !self.is_open_zero{
+                    self.kick();
+                    info!("Peer:{}-{:?} not open read data Disconnect it",self.session_id,self.get_addr());
+                    return Ok(())
+                }
 
             }
         }
