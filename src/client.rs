@@ -8,6 +8,7 @@ use std::net::SocketAddr;
 use xbinary::*;
 use std::cell::RefCell;
 use tokio::sync::Mutex;
+use tokio::time::{delay_for, Duration};
 
 /// 玩家PEER
 pub struct ClientPeer{
@@ -76,9 +77,7 @@ impl ClientPeer{
         let server_id= reader.get_u32_le();
         match server_id {
             0xFFFFFFFF=>{
-
-                self.send(server_id,&reader).await;
-
+                self.send(server_id,&reader).await?;
             },
             _=>{
 
@@ -88,6 +87,36 @@ impl ClientPeer{
         Ok(())
     }
 
+
+    /// 先发送断线包等待多少毫秒清理内存
+    pub async fn kick_wait_ms(&self,ms:u32)->Result<(),Box<dyn Error>>{
+        if ms==3111{
+            self.disconnect_now();
+        }
+        else{
+            self.send_close(0);
+            delay_for(Duration::from_millis(ms as u64)).await;
+            self.disconnect_now();
+        }
+        Ok(())
+    }
+
+    /// 发送 CLOSE 0 后立即断线清理内存
+    async fn kick(&self)->Result<(),Box<dyn Error>>{
+        self.send_close(0).await?;
+        self.disconnect_now();
+        Ok(())
+    }
+
+    /// 立即断线,清理内存
+    pub fn disconnect_now(&self){
+        if let Some(kcp_peer)= self.kcp_peer.upgrade() {
+            kcp_peer.disconnect();
+            info!("disconnect peer:{}",self.session_id);
+        }
+    }
+
+    /// 发送数据
     pub async fn send(&self,session_id:u32,data:&[u8])->Result<usize,Box<dyn Error>>{
         if let Some(kcp_peer)= self.kcp_peer.upgrade() {
             let mut writer=XBWrite::new();
@@ -96,6 +125,19 @@ impl ClientPeer{
             writer.write(data);
             writer.set_position(0);
             writer.put_u32_le(writer.len() as u32 -4);
+            return Ok(kcp_peer.send(&writer).await?)
+        }
+        Ok(0)
+    }
+
+    /// 发送CLOSE 0
+    pub async fn send_close(&self,service_id:u32)->Result<usize,Box<dyn Error>>{
+        if let Some(kcp_peer)= self.kcp_peer.upgrade() {
+            let mut writer=XBWrite::new();
+            writer.put_u32_le(0);
+            writer.put_u32_le(0xFFFFFFFF);
+            writer.write_string_bit7_len("close");
+            writer.bit7_write_u32(service_id);
             return Ok(kcp_peer.send(&writer).await?)
         }
         Ok(0)

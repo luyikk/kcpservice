@@ -34,7 +34,7 @@ async fn main()->Result<(),Box<dyn Error>> {
 async fn buff_input(kcp_peer:Arc<KcpPeer<Arc<ClientPeer>>>, mut data:Bytes) ->Result<(),Box<dyn Error>> {
 
     let  peer= {
-        let mut client_peer = kcp_peer.token.lock().await;
+        let mut client_peer = kcp_peer.token.borrow_mut();
         match client_peer.get() {
             None => {
                 if data.len()>=5 &&

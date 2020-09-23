@@ -275,17 +275,26 @@ impl<S,R> KcpListener<S,R>
 
     /// 创建一个 kcp_peer_ptr
     #[inline]
-    async fn make_kcp_peer_ptr(conv:u32,sender: Arc<Mutex<SendHalf>>, addr: SocketAddr,this_ptr:Arc<KcpListener<S,R>>)-> Arc<KcpPeer<S>>{
+    async fn make_kcp_peer_ptr(conv:u32,sender: Arc<Mutex<SendHalf>>, addr: SocketAddr,this:Arc<KcpListener<S,R>>)-> Arc<KcpPeer<S>>{
+
         let mut kcp = Kcp::new(conv, sender,addr);
-        this_ptr.config.apply_config(&mut kcp);
+        this.config.apply_config(&mut kcp);
+        let disconnect_event =move |conv:u32|{
+            tokio::spawn(async move{
+                let mut peers= this.peers.lock().await;
+                peers.remove(&conv);
+            });
+        };
+
         let kcp_lock= kcp.get_lock();
         let  kcp_peer_obj = KcpPeer {
             kcp:kcp_lock,
             conv,
             addr,
-            token: Mutex::new(TokenStore(None)),
+            token: RefCell::new(TokenStore(None)),
             last_rev_time: AtomicI64::new(0),
-            next_update_time:AtomicU32::new(0)
+            next_update_time:AtomicU32::new(0),
+            disconnect_event: RefCell::new(Some(Box::new(disconnect_event)))
         };
 
        Arc::new(kcp_peer_obj)

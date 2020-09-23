@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::net::SocketAddr;
 use log::*;
+use std::cell::RefCell;
 
 
 /// KCP LOCK
@@ -77,9 +78,10 @@ pub struct KcpPeer<T: Send> {
     pub kcp:KcpLock,
     pub conv: u32,
     pub addr: SocketAddr,
-    pub token: Mutex<TokenStore<T>>,
+    pub token: RefCell<TokenStore<T>>,
     pub last_rev_time: AtomicI64,
-    pub next_update_time:AtomicU32
+    pub next_update_time:AtomicU32,
+    pub disconnect_event: RefCell<Option<Box<dyn FnOnce(u32)>>>
 }
 
 impl<T:Send> Drop for KcpPeer<T>{
@@ -93,6 +95,14 @@ unsafe impl<T: Send> Sync for KcpPeer<T>{}
 
 /// 简化KCP PEER 函数
 impl <T:Send> KcpPeer<T>{
+
+    pub fn disconnect(&self) {
+        let mut call_value = self.disconnect_event.borrow_mut().take();
+        if let Some(call) = call_value {
+            call(self.conv);
+        }
+    }
+
     #[inline]
     pub async fn peeksize(&self)-> KcpResult<usize>{
         self.kcp.peeksize().await
