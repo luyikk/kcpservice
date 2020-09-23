@@ -9,7 +9,7 @@ use crate::kcp::{KcpConfig, KcpNoDelayConfig, KcpListener,KcpPeer};
 
 use mimalloc::MiMalloc;
 use std::sync::Arc;
-use bytes::{Bytes, BytesMut, Buf};
+use bytes::{Bytes, Buf};
 use env_logger::Builder;
 use log::LevelFilter;
 use client::ClientPeer;

@@ -1,5 +1,5 @@
 use super::error;
-use net2::{UdpBuilder, UdpSocketExt};
+use net2::{UdpBuilder};
 use std::convert::TryFrom;
 use std::error::Error;
 use std::future::Future;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::net::udp::{RecvHalf, SendHalf};
 use tokio::net::UdpSocket;
 use async_mutex::Mutex;
-use tokio::time::{delay_for, Duration, Instant};
+use tokio::time::{delay_for, Duration};
 
 
 #[cfg(not(target_os = "windows"))]

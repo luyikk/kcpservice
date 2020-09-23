@@ -102,7 +102,7 @@ impl<S,R> KcpListener<S,R>
     }
 
     /// 获取当前时间戳 转换为u32
-    #[inline]
+    #[inline(always)]
     fn current() -> u32 {
         let time =chrono::Local::now().timestamp_millis() & 0xffffffff;
         time as u32
@@ -177,7 +177,7 @@ impl<S,R> KcpListener<S,R>
     }
 
     /// 生成一个u32的conv
-    #[inline]
+    #[inline(always)]
     fn make_conv(&self) -> u32 {
         let old = self.conv_make.fetch_add(1, Ordering::Release);
         if old == u32::max_value() - 1 {
@@ -189,7 +189,7 @@ impl<S,R> KcpListener<S,R>
    /// UDP 数据表输入
    /// 发送回客户端 格式为 [u8;4]+[u8;4] =[u8;8],前面4字节为客户端所发,后面4字节为conv id
    /// 如果不是第一发包 就将数据表压入到 kcp_module,之后读取 数据包输出 真实的数据包结构
-   #[inline]
+   #[inline(always)]
     async fn buff_input(
         this: Arc<Self>,
         sender: Arc<Mutex<SendHalf>>,
@@ -212,7 +212,7 @@ impl<S,R> KcpListener<S,R>
    }
 
     /// 读取数据包
-    #[inline]
+    #[inline(always)]
     async fn recv_buff(this:Arc<Self>, kcp_peer: Arc<KcpPeer<S>>)->Result<(), Box<dyn Error>> {
         while let Ok(len) = kcp_peer.peeksize().await {
             let mut buff = vec![0; len];
@@ -228,7 +228,7 @@ impl<S,R> KcpListener<S,R>
 
     /// 读取下发的conv,返回kcp_peer 如果在字典类中存在返回kcp_peer
     /// 否则创建一个kcp_peer 绑定到字典类中
-    #[inline]
+    #[inline(always)]
     async fn get_kcp_peer_and_input(this: &Arc<Self>, sender: Arc<Mutex<SendHalf>>, addr: SocketAddr, data: &[u8]) -> Arc<KcpPeer<S>> {
         let mut conv_data = [0; 4];
         conv_data.copy_from_slice(&data[0..4]);
@@ -258,7 +258,7 @@ impl<S,R> KcpListener<S,R>
     /// 创建一个KCP_PEER 并存入 Kcp_peers 字典中
     /// 首先判断 是否第一次发包
     /// 如果第一次发包 看看发的是不是 [u8;4] 是的话 生成一个conv id,同时配置一个KcpPeer存储于UDP TOKEN中
-    #[inline]
+    #[inline(always)]
     async fn make_kcp_peer(this: Arc<Self>, sender: Arc<Mutex<SendHalf>>, addr: SocketAddr, data: Vec<u8>) -> Result<(), Box<dyn Error>> {
         // 清除上一次的kcp
         // 创建一个 conv 写入临时连接表
@@ -274,7 +274,7 @@ impl<S,R> KcpListener<S,R>
     }
 
     /// 创建一个 kcp_peer_ptr
-    #[inline]
+    #[inline(always)]
     async fn make_kcp_peer_ptr(conv:u32,sender: Arc<Mutex<SendHalf>>, addr: SocketAddr,this:Arc<KcpListener<S,R>>)-> Arc<KcpPeer<S>>{
 
         let mut kcp = Kcp::new(conv, sender,addr);

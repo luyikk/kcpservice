@@ -97,7 +97,7 @@ unsafe impl<T: Send> Sync for KcpPeer<T>{}
 impl <T:Send> KcpPeer<T>{
 
     pub fn disconnect(&self) {
-        let mut call_value = self.disconnect_event.borrow_mut().take();
+        let call_value = self.disconnect_event.borrow_mut().take();
         if let Some(call) = call_value {
             call(self.conv);
         }
