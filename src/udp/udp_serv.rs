@@ -7,7 +7,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use tokio::net::udp::{RecvHalf, SendHalf};
 use tokio::net::UdpSocket;
-use tokio::sync::Mutex;
+use async_mutex::Mutex;
 use tokio::time::{delay_for, Duration, Instant};
 
 
@@ -73,7 +73,7 @@ pub struct UdpSend(pub Arc<Mutex<SendHalf>>,pub SocketAddr);
 
 impl UdpSend{
     pub async fn send(&self,buf: &[u8])->std::io::Result<usize> {
-        self.0.lock().await.send_to(buf,&self.1).await
+        self.0.lock_arc().await.send_to(buf,&self.1).await
     }
 }
 
@@ -232,7 +232,7 @@ impl<I, R, S> UdpServer<I, R, S>
                         let mut buff = [0; BUFF_MAX_SIZE];
                         loop {
                             let res = {
-                                let mut sock = sock_mutex.lock().await;
+                                let mut sock = sock_mutex.lock_arc().await;
                                 sock.recv_from(&mut buff).await
                             };
 
@@ -242,13 +242,12 @@ impl<I, R, S> UdpServer<I, R, S>
                                     let next_inner = inner.clone();
                                     let next_send_sock = send_sock.clone();
                                     let next_err_input = err_input.clone();
-                                    let start = Instant::now();
                                     tokio::spawn(async move {
                                         let res = next_input(next_inner, next_send_sock, addr, buff[0..size].to_vec()).await;
                                         if let Err(er) = res {
                                             let msg = format!("{}", er);
-                                            let error = next_err_input.try_lock();
-                                            if let Ok(error) = error {
+                                            let error = next_err_input.try_lock_arc();
+                                            if let Some(error) = error {
                                                 error(
                                                     Some(addr),
                                                     msg.into(),
@@ -259,7 +258,7 @@ impl<I, R, S> UdpServer<I, R, S>
                                 }
 
                             } else if let Err(er) = res {
-                                let error = err_input.lock().await;
+                                let error = err_input.lock_arc().await;
                                 error(None, error::Error::IOError(er).into());
                             }
                         }

@@ -10,7 +10,7 @@ use bytes::{Buf, BufMut, BytesMut, Bytes};
 use std::sync::Arc;
 use log::*;
 use std::cmp::Ordering;
-use tokio::sync::Mutex;
+use async_mutex::Mutex;
 use tokio::net::udp::SendHalf;
 use std::net::SocketAddr;
 
@@ -132,7 +132,7 @@ struct KcpOutput(pub Arc<Mutex<SendHalf>>,pub SocketAddr);
 
 impl KcpOutput{
     pub async fn send(&self,data:&[u8])->io::Result<usize>{
-        let mut sender=   self.0.lock().await;
+        let mut sender=   self.0.lock_arc().await;
         sender.send_to(data,&self.1).await
     }
 }

@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use async_mutex::Mutex;
 use super::udp_server_store::UdpServerStore;
 use std::sync::atomic::{AtomicU32, Ordering, AtomicI64};
 use super::kcp_peer::KcpPeer;
@@ -116,8 +116,8 @@ impl<S,R> KcpListener<S,R>
         if self.udp_server.get().is_some() {
             tokio::spawn(async move {
                 loop {
-                    let res = peers.try_lock();
-                    if let Ok(mut peers) = res {
+                    let res = peers.try_lock_arc();
+                    if let Some(mut peers) = res {
                         let mut remove_vec = vec![];
                         for conv in peers.keys() {
                             if let Some(peer) = peers.get(conv) {
@@ -147,8 +147,8 @@ impl<S,R> KcpListener<S,R>
         tokio::spawn( async move {
             loop {
                 let time=Self::current();
-                let res = peers.try_lock();
-                if let Ok(mut peers) = res {
+                let res = peers.try_lock_arc();
+                if let Some(mut peers) = res {
                     for (_, p) in peers.iter_mut() {
                         let peer = p.clone();
                         if time>=peer.next_update_time.load(Ordering::Acquire) {
@@ -206,7 +206,7 @@ impl<S,R> KcpListener<S,R>
            Self::make_kcp_peer(this,sender,addr,data).await?;
        }
        else{
-           sender.lock().await.send_to(&data,&addr).await?;
+           sender.lock_arc().await.send_to(&data,&addr).await?;
        }
        Ok(())
    }
@@ -235,7 +235,7 @@ impl<S,R> KcpListener<S,R>
         let conv = u32::from_le_bytes(conv_data);
 
         let kcp_peer:Arc<KcpPeer<S>> = {
-            let mut peers=this.peers.lock().await;
+            let mut peers=this.peers.lock_arc().await;
             if let Some(peer)= peers.get(&conv){
                 peer.clone()
             }
@@ -269,7 +269,7 @@ impl<S,R> KcpListener<S,R>
         let mut buff = BytesMut::new();
         buff.put_slice(&data);
         buff.put_u32_le(conv);
-        sender.lock().await.send_to(&buff,&addr).await?;
+        sender.lock_arc().await.send_to(&buff,&addr).await?;
         Ok(())
     }
 
@@ -281,7 +281,7 @@ impl<S,R> KcpListener<S,R>
         this.config.apply_config(&mut kcp);
         let disconnect_event =move |conv:u32|{
             tokio::spawn(async move{
-                let mut peers= this.peers.lock().await;
+                let mut peers= this.peers.lock_arc().await;
                 peers.remove(&conv);
             });
         };

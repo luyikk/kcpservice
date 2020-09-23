@@ -1,4 +1,4 @@
-use tokio::sync::Mutex;
+use async_mutex::Mutex;
 use crate::udp::TokenStore;
 use super::super::kcp_module::{Kcp, KcpResult};
 use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
@@ -17,44 +17,44 @@ unsafe impl Sync for KcpLock{}
 impl KcpLock{
     #[inline]
     pub async fn peeksize(&self)-> KcpResult<usize>{
-        self.0.lock().await.peeksize()
+        self.0.lock_arc().await.peeksize()
     }
 
     #[inline]
     pub async fn check(&self,current:u32)->u32{
-        self.0.lock().await.check(current)
+        self.0.lock_arc().await.check(current)
     }
 
     #[inline]
     pub async fn input(&self, buf: &[u8]) -> KcpResult<usize>{
-        self.0.lock().await.input(buf)
+        self.0.lock_arc().await.input(buf)
     }
 
     #[inline]
     pub async fn recv(&self, buf: &mut [u8]) -> KcpResult<usize>{
-        self.0.lock().await.recv(buf)
+        self.0.lock_arc().await.recv(buf)
     }
 
     #[inline]
     pub async fn send(&self, buf: &[u8]) -> KcpResult<usize>{
-        self.0.lock().await.send(buf)
+        self.0.lock_arc().await.send(buf)
     }
 
     #[inline]
     pub async fn update(&self, current: u32) ->  KcpResult<u32>{
-        let mut p= self.0.lock().await;
+        let mut p= self.0.lock_arc().await;
         p.update(current).await?;
         Ok(p.check(current))
     }
 
     #[inline]
     pub async fn flush(&self) -> KcpResult<()>{
-        self.0.lock().await.flush().await
+        self.0.lock_arc().await.flush().await
     }
 
     #[inline]
     pub async fn flush_async(&self)->  KcpResult<()>{
-        self.0.lock().await.flush_async().await
+        self.0.lock_arc().await.flush_async().await
     }
 }
 

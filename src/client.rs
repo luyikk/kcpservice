@@ -7,7 +7,7 @@ use log::*;
 use std::net::SocketAddr;
 use xbinary::*;
 use std::cell::RefCell;
-use tokio::sync::Mutex;
+use async_mutex::Mutex;
 use tokio::time::{delay_for, Duration};
 
 /// 玩家PEER
@@ -83,7 +83,7 @@ impl ClientPeer{
             },
             0=>{
                 if !self.is_open_zero{
-                    self.kick();
+                    self.kick().await?;
                     info!("Peer:{}-{:?} not open read data Disconnect it",self.session_id,self.get_addr());
                     return Ok(())
                 }
@@ -92,7 +92,7 @@ impl ClientPeer{
             },
             0xEEEEEEEE=>{
                 if !self.is_open_zero{
-                    self.kick();
+                    self.kick().await?;;
                     info!("Peer:{}-{:?} not open read data Disconnect it",self.session_id,self.get_addr());
                     return Ok(())
                 }
@@ -100,7 +100,7 @@ impl ClientPeer{
             },
             _=>{
                 if !self.is_open_zero{
-                    self.kick();
+                    self.kick().await?;;
                     info!("Peer:{}-{:?} not open read data Disconnect it",self.session_id,self.get_addr());
                     return Ok(())
                 }
@@ -118,7 +118,7 @@ impl ClientPeer{
             self.disconnect_now();
         }
         else{
-            self.send_close(0);
+            self.send_close(0).await?;
             delay_for(Duration::from_millis(ms as u64)).await;
             self.disconnect_now();
         }
