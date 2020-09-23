@@ -13,6 +13,8 @@ use std::cmp::Ordering;
 use async_mutex::Mutex;
 use tokio::net::udp::SendHalf;
 use std::net::SocketAddr;
+use crate::udp::SendUDP;
+use tokio::io::ErrorKind;
 
 const KCP_RTO_NDL: u32 = 30;
 const KCP_RTO_MIN: u32 = 100;
@@ -128,12 +130,15 @@ impl KcpSegment {
 
 
 
-struct KcpOutput(pub Arc<Mutex<SendHalf>>,pub SocketAddr);
+struct KcpOutput(pub SendUDP,pub SocketAddr);
 
 impl KcpOutput{
     pub async fn send(&self,data:&[u8])->io::Result<usize>{
-        let mut sender=   self.0.lock_arc().await;
-        sender.send_to(data,&self.1).await
+        let mut sender= self.0.clone();
+        if let Err(er) =sender.send((data.to_vec(),self.1)).await{
+            return  Err(io::Error::new(ErrorKind::Other,er))
+        }
+        Ok(0)
     }
 }
 
@@ -230,7 +235,7 @@ impl Kcp {
     /// `output` is the callback object for writing.
     ///
     /// `conv` represents conversation.
-    pub fn new(conv: u32, output: Arc<Mutex<SendHalf>>,addr:SocketAddr) -> Self {
+    pub fn new(conv: u32, output: SendUDP,addr:SocketAddr) -> Self {
         Kcp::construct(conv, output, addr,false)
     }
 
@@ -238,11 +243,11 @@ impl Kcp {
     /// `output` is the callback object for writing.
     ///
     /// `conv` represents conversation.
-    pub fn new_stream(conv: u32, output: Arc<Mutex<SendHalf>>,addr:SocketAddr,stream: bool) -> Self {
+    pub fn new_stream(conv: u32, output: SendUDP,addr:SocketAddr,stream: bool) -> Self {
         Kcp::construct(conv, output, addr,stream)
     }
 
-    fn construct(conv: u32, output:Arc<Mutex<SendHalf>>,addr:SocketAddr, stream: bool) -> Self {
+    fn construct(conv: u32, output:SendUDP,addr:SocketAddr, stream: bool) -> Self {
         Kcp {
             conv,
             snd_una: 0,

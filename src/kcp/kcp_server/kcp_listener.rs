@@ -9,7 +9,7 @@ use std::time::Duration;
 use super::super::kcp_module::kcp_config::KcpConfig;
 use std::cell::{UnsafeCell, RefCell};
 use std::error::Error;
-use crate::udp::{UdpServer, TokenStore};
+use crate::udp::{UdpServer, TokenStore, SendUDP};
 use log::*;
 use bytes::{Bytes, BytesMut, BufMut};
 use super::super::kcp_module::Kcp;
@@ -191,10 +191,10 @@ impl<S,R> KcpListener<S,R>
    /// 如果不是第一发包 就将数据表压入到 kcp_module,之后读取 数据包输出 真实的数据包结构
    #[inline(always)]
     async fn buff_input(
-        this: Arc<Self>,
-        sender: Arc<Mutex<SendHalf>>,
-        addr: SocketAddr,
-        data: Vec<u8>,
+       this: Arc<Self>,
+       mut sender: SendUDP,
+       addr: SocketAddr,
+       data: Vec<u8>,
     ) -> Result<(), Box<dyn Error>> {
 
        if data.len()>=24{
@@ -206,7 +206,7 @@ impl<S,R> KcpListener<S,R>
            Self::make_kcp_peer(this,sender,addr,data).await?;
        }
        else{
-           sender.lock_arc().await.send_to(&data,&addr).await?;
+           sender.send((data,addr)).await?;
        }
        Ok(())
    }
@@ -229,7 +229,7 @@ impl<S,R> KcpListener<S,R>
     /// 读取下发的conv,返回kcp_peer 如果在字典类中存在返回kcp_peer
     /// 否则创建一个kcp_peer 绑定到字典类中
     #[inline(always)]
-    async fn get_kcp_peer_and_input(this: &Arc<Self>, sender: Arc<Mutex<SendHalf>>, addr: SocketAddr, data: &[u8]) -> Arc<KcpPeer<S>> {
+    async fn get_kcp_peer_and_input(this: &Arc<Self>, sender: SendUDP, addr: SocketAddr, data: &[u8]) -> Arc<KcpPeer<S>> {
         let mut conv_data = [0; 4];
         conv_data.copy_from_slice(&data[0..4]);
         let conv = u32::from_le_bytes(conv_data);
@@ -259,7 +259,7 @@ impl<S,R> KcpListener<S,R>
     /// 首先判断 是否第一次发包
     /// 如果第一次发包 看看发的是不是 [u8;4] 是的话 生成一个conv id,同时配置一个KcpPeer存储于UDP TOKEN中
     #[inline(always)]
-    async fn make_kcp_peer(this: Arc<Self>, sender: Arc<Mutex<SendHalf>>, addr: SocketAddr, data: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    async fn make_kcp_peer(this: Arc<Self>, mut sender: SendUDP, addr: SocketAddr, data: Vec<u8>) -> Result<(), Box<dyn Error>> {
         // 清除上一次的kcp
         // 创建一个 conv 写入临时连接表
         // 给客户端回复 conv
@@ -269,14 +269,13 @@ impl<S,R> KcpListener<S,R>
         let mut buff = BytesMut::new();
         buff.put_slice(&data);
         buff.put_u32_le(conv);
-        sender.lock_arc().await.send_to(&buff,&addr).await?;
+        sender.send((buff.to_vec(),addr)).await?;
         Ok(())
     }
 
     /// 创建一个 kcp_peer_ptr
     #[inline(always)]
-    async fn make_kcp_peer_ptr(conv:u32,sender: Arc<Mutex<SendHalf>>, addr: SocketAddr,this:Arc<KcpListener<S,R>>)-> Arc<KcpPeer<S>>{
-
+    async fn make_kcp_peer_ptr(conv:u32,sender: SendUDP, addr: SocketAddr,this:Arc<KcpListener<S,R>>)-> Arc<KcpPeer<S>>{
         let mut kcp = Kcp::new(conv, sender,addr);
         this.config.apply_config(&mut kcp);
         let disconnect_event =move |conv:u32|{

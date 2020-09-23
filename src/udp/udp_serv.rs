@@ -13,7 +13,8 @@ use tokio::time::{delay_for, Duration};
 
 #[cfg(not(target_os = "windows"))]
 use net2::unix::UnixUdpBuilderExt;
-
+use crate::udp::SendPool;
+use crate::udp::send::SendUDP;
 
 
 /// UDP 单个包最大大小,默认4096 主要看MTU一般不会超过1500在internet 上
@@ -25,7 +26,7 @@ pub const BUFF_MAX_SIZE: usize = 4096;
 pub struct UdpContext {
     pub id: usize,
     recv: Arc<Mutex<RecvHalf>>,
-    pub send: Arc<Mutex<SendHalf>>
+    pub send: SendPool
 }
 
 /// 错误输入类型
@@ -36,7 +37,7 @@ pub type ErrorInput=Arc<Mutex<dyn Fn(Option<SocketAddr>, Box<dyn Error>) + Send>
 /// R 用来限制 必须input的是 异步函数
 pub struct UdpServer<I, R, S>
     where
-        I: Fn(Arc<S>,Arc<Mutex<SendHalf>>, SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
+        I: Fn(Arc<S>,SendUDP, SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
         R: Future<Output = Result<(), Box<dyn Error>>>,
         S: Sync +Send+'static
 {
@@ -79,7 +80,7 @@ impl UdpSend{
 
 
 impl <I,R> UdpServer<I,R,()>  where
-    I: Fn(Arc<()>,Arc<Mutex<SendHalf>>,SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
+    I: Fn(Arc<()>,SendUDP,SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
     R: Future<Output = Result<(), Box<dyn Error>>> + Send {
 
     pub async fn new<A: ToSocketAddrs>(addr:A)->Result<Self, Box<dyn Error>> {
@@ -89,7 +90,7 @@ impl <I,R> UdpServer<I,R,()>  where
 
 impl<I, R, S> UdpServer<I, R, S>
     where
-        I: Fn(Arc<S>,Arc<Mutex<SendHalf>>,SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
+        I: Fn(Arc<S>,SendUDP,SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
         R: Future<Output = Result<(), Box<dyn Error>>> + Send,
         S: Sync +Send + 'static{
     ///用于非windows 创建socket,和windows的区别在于开启了 reuse_port
@@ -167,7 +168,7 @@ impl<I, R, S> UdpServer<I, R, S>
             udp_map.push(UdpContext {
                 id,
                 recv: Arc::new(Mutex::new(recv)),
-                send: Arc::new(Mutex::new( send))
+                send: SendPool::new(send)
             });
             id += 1;
         }
@@ -205,7 +206,7 @@ impl<I, R, S> UdpServer<I, R, S>
             let mut tasks = vec![];
             for udp_sock in self.udp_contexts.iter() {
                 let recv_sock = Arc::downgrade(&udp_sock.recv);
-                let send_sock = udp_sock.send.clone();
+                let send_sock = udp_sock.send.get_tx();
                 let input=input.clone();
                 let inner= self.inner.clone();
                 let err_input = {
