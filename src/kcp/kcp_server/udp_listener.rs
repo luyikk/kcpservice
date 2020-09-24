@@ -23,7 +23,8 @@ impl<I, R, S> UdpListener for UdpServer<I, R, S>
 {
     /// 实现 UDPListener的 start
     async fn start(&self) -> Result<(), Box<dyn Error>> {
-         self.start().await
+        self.start().await?;
+        Ok(())
     }
 }
 

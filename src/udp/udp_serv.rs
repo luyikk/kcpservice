@@ -1,20 +1,20 @@
 use super::error;
-use net2::{UdpBuilder};
+use net2::{UdpBuilder, UdpSocketExt};
 use std::convert::TryFrom;
 use std::error::Error;
 use std::future::Future;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
-use tokio::net::udp::{RecvHalf, SendHalf};
 use tokio::net::UdpSocket;
-use async_mutex::Mutex;
-use tokio::time::{delay_for, Duration};
-
+use tokio::sync::Mutex;
+use tokio::sync::mpsc::unbounded_channel;
+use std::cell::RefCell;
+use super::send::{SendUDP, SendPool};
+use tokio::net::udp::RecvHalf;
 
 #[cfg(not(target_os = "windows"))]
 use net2::unix::UnixUdpBuilderExt;
-use crate::udp::SendPool;
-use crate::udp::send::SendUDP;
+
 
 
 /// UDP 单个包最大大小,默认4096 主要看MTU一般不会超过1500在internet 上
@@ -25,16 +25,21 @@ pub const BUFF_MAX_SIZE: usize = 4096;
 /// UDP SOCKET 上下文,包含 id, 和Pees, 用于收发数据
 pub struct UdpContext {
     pub id: usize,
-    recv: Arc<Mutex<RecvHalf>>,
+    recv: RefCell<Option<RecvHalf>>,
     pub send: SendPool
 }
 
+unsafe  impl Send for UdpContext{}
+unsafe  impl Sync for  UdpContext{}
+
 /// 错误输入类型
-pub type ErrorInput=Arc<Mutex<dyn Fn(Option<SocketAddr>, Box<dyn Error>) + Send>>;
+pub type ErrorInput=Arc<Mutex<dyn Fn(Option<SocketAddr>, Box<dyn Error>)->bool + Send>>;
 
 /// UDP 服务器对象
 /// I 用来限制必须input的FN 原型,
 /// R 用来限制 必须input的是 异步函数
+/// T 用来设置返回值
+
 pub struct UdpServer<I, R, S>
     where
         I: Fn(Arc<S>,SendUDP, SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
@@ -44,7 +49,7 @@ pub struct UdpServer<I, R, S>
     inner:Arc<S>,
     udp_contexts: Vec<UdpContext>,
     input: Option<Arc<I>>,
-    error_input: Option<ErrorInput>
+    error_input: Option<ErrorInput>,
 }
 
 
@@ -68,20 +73,37 @@ impl<T:Send> TokenStore<T>{
 }
 
 
-/// 用来存储SendHalf 并实现Write
-#[derive(Debug)]
-pub struct UdpSend(pub Arc<Mutex<SendHalf>>,pub SocketAddr);
 
-impl UdpSend{
-    pub async fn send(&self,buf: &[u8])->std::io::Result<usize> {
-        self.0.lock_arc().await.send_to(buf,&self.1).await
-    }
+/// Peer 对象
+/// 用来标识client
+/// socket_id 标识 所在哪个UDPContent,一般只在头一次接收到数据的时候设置
+/// 一般用来所在Peer位置,linux 服务器上启用了 reuse_port
+/// 所以后续收到数据包不一定来自于此 所在哪个UDPContent
+/// 而windows上只有一个socket,所以始终只有1个
+/// # token
+/// 你可以自定义放一些和用户有关的数据,这样的话方便你对用户进行区别,已提取用户逻辑数据
+#[derive(Debug)]
+pub struct Peer<T: Send> {
+    pub socket_id: usize,
+    pub addr: SocketAddr,
+    pub token: Arc<Mutex<TokenStore<T>>>,
+    pub udp_sock: SendUDP,
 }
 
 
+impl<T: Send> Peer<T> {
+    /// Send 发送数据包
+    /// 作为最基本的函数之一,它采用了tokio的async send_to
+    /// 首先,他会去弱指针里面拿到强指针,如果没有他会爆错
+    pub async fn send(&self, data: Vec<u8>) -> Result<(), Box<dyn Error>> {
+        self.udp_sock.send((data,self.addr))?;
+        Ok(())
+    }
+}
+
 impl <I,R> UdpServer<I,R,()>  where
-    I: Fn(Arc<()>,SendUDP,SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
-    R: Future<Output = Result<(), Box<dyn Error>>> + Send {
+    I: Fn(Arc<()>,SendUDP, SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
+    R: Future<Output = Result<(), Box<dyn Error>>> + Send{
 
     pub async fn new<A: ToSocketAddrs>(addr:A)->Result<Self, Box<dyn Error>> {
         Self::new_inner(addr,Arc::new(())).await
@@ -90,7 +112,7 @@ impl <I,R> UdpServer<I,R,()>  where
 
 impl<I, R, S> UdpServer<I, R, S>
     where
-        I: Fn(Arc<S>,SendUDP,SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
+        I: Fn(Arc<S>,SendUDP, SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
         R: Future<Output = Result<(), Box<dyn Error>>> + Send,
         S: Sync +Send + 'static{
     ///用于非windows 创建socket,和windows的区别在于开启了 reuse_port
@@ -117,8 +139,8 @@ impl<I, R, S> UdpServer<I, R, S>
         addr: &A,
     ) -> Result<std::net::UdpSocket, Box<dyn Error>> {
         let res = Self::make_udp_client(addr)?;
-       // res.set_send_buffer_size(1784 * 10000)?;
-       // res.set_recv_buffer_size(1784 * 10000)?;
+        res.set_send_buffer_size(1784 * 10000)?;
+        res.set_recv_buffer_size(1784 * 10000)?;
         Ok(res)
     }
 
@@ -167,7 +189,7 @@ impl<I, R, S> UdpServer<I, R, S>
             let (recv, send) = udp.split();
             udp_map.push(UdpContext {
                 id,
-                recv: Arc::new(Mutex::new(recv)),
+                recv:RefCell::new(Some(recv)),
                 send: SendPool::new(send)
             });
             id += 1;
@@ -177,7 +199,7 @@ impl<I, R, S> UdpServer<I, R, S>
             inner,
             udp_contexts: udp_map,
             input: None,
-            error_input: None
+            error_input: None,
         })
     }
 
@@ -191,9 +213,10 @@ impl<I, R, S> UdpServer<I, R, S>
 
     /// 设置错误输出
     /// 返回bool 如果 true　表示停止服务
-    pub fn set_err_input<P: Fn(Option<SocketAddr>, Box<dyn Error>)+ Send + 'static>(&mut self, err_input: P) {
+    pub fn set_err_input<P: Fn(Option<SocketAddr>, Box<dyn Error>)->bool + Send + 'static>(&mut self, err_input: P) {
         self.error_input = Some(Arc::new(Mutex::new(err_input)));
     }
+
 
 
     /// 启动服务
@@ -202,76 +225,73 @@ impl<I, R, S> UdpServer<I, R, S>
     /// 那么 就会输出默认的 err_input,如果输出默认的 err_input 那么整个服务将会停止
     /// 所以如果不想服务停止,那么必须自己实现 err_input 并且返回 false
     pub async fn start(&self) -> Result<(), Box<dyn Error>> {
-        if let Some(input) = &self.input {
-            let mut tasks = vec![];
-            for udp_sock in self.udp_contexts.iter() {
-                let recv_sock = Arc::downgrade(&udp_sock.recv);
-                let send_sock = udp_sock.send.get_tx();
-                let input=input.clone();
-                let inner= self.inner.clone();
-                let err_input = {
-                    if let Some(err) = &self.error_input {
-                        let x = err;
-                        x.clone()
-                    } else {
-                        Arc::new(Mutex::new(|addr:Option<SocketAddr>, err:Box<dyn Error>| {
-                            match addr {
-                                Some(addr) => {
-                                    println!("{}-{}", addr, err);
-                                }
-                                None => {
-                                    println!("{}", err);
-                                }
+        if let Some(ref input) = self.input {
+            let err_input = {
+                if let Some(err) = &self.error_input {
+                    let x = err;
+                    x.clone()
+                } else {
+                    Arc::new(Mutex::new(|addr:Option<SocketAddr>, err: Box<dyn Error>| {
+                        match addr {
+                            Some(addr) => {
+                                println!("{}-{}", addr, err);
                             }
-                        }))
-                    }
-                };
+                            None => {
+                                println!("{}", err);
+                            }
+                        }
+                        true
+                    }))
+                }
+            };
 
-                let pd = tokio::spawn(async move {
-                    let wk = recv_sock.upgrade();
-                    if let Some(sock_mutex) = wk {
+            let (tx, mut rx) = unbounded_channel();
+            for udp_sock in self.udp_contexts.iter() {
+                let recv_sock = udp_sock.recv.borrow_mut().take();
+                let send_sock = udp_sock.send.get_tx();
+                if let Some(mut recv_sock) = recv_sock {
+                    let move_data_tx = tx.clone();
+                    let error_input=err_input.clone();
+                    tokio::spawn(async move {
                         let mut buff = [0; BUFF_MAX_SIZE];
                         loop {
                             let res = {
-                                let mut sock = sock_mutex.lock_arc().await;
-                                sock.recv_from(&mut buff).await
+                                recv_sock.recv_from(&mut buff).await
                             };
 
                             if let Ok((size, addr)) = res {
-                                if size>0 {
-                                    let next_input = input.clone();
-                                    let next_inner = inner.clone();
-                                    let next_send_sock = send_sock.clone();
-                                    let next_err_input = err_input.clone();
-                                    tokio::spawn(async move {
-                                        let res = next_input(next_inner, next_send_sock, addr, buff[0..size].to_vec()).await;
-                                        if let Err(er) = res {
-                                            let msg = format!("{}", er);
-                                            let error = next_err_input.try_lock_arc();
-                                            if let Some(error) = error {
-                                                error(
-                                                    Some(addr),
-                                                    msg.into(),
-                                                );
-                                            }
-                                        }
-                                    });
+                                if let Err(er) = move_data_tx.send((send_sock.clone(), addr, buff[..size].to_vec())) {
+                                    let error = error_input.lock().await;
+                                    let _ = error(Some(addr), Box::new(er));
+                                    break;
                                 }
-
                             } else if let Err(er) = res {
-                                let error = err_input.lock_arc().await;
-                                error(None, error::Error::IOError(er).into());
+                                let error = error_input.lock().await;
+                                let stop = error(None, error::Error::IOError(er).into());
+                                if stop {
+                                    return;
+                                }
                             }
                         }
-                    } else {
-                        delay_for(Duration::from_millis(1)).await;
-                    }
-                });
-                tasks.push(pd);
+                    });
+                }
             }
 
-            for task in tasks {
-                task.await?;
+            while let Some((send_sock,  addr, data)) = rx.recv().await {
+                let err= {
+                    let res = input(self.inner.clone(), send_sock, addr, data).await;
+                    match res {
+                        Err(er) => Some(format!("{}", er)),
+                        Ok(_) => None
+                    }
+                };
+                 if let Some(er_msg) = err {
+                    let error = err_input.lock().await;
+                    let stop = error(Some(addr), er_msg.into());
+                    if stop {
+                        break;
+                    }
+                }
             }
 
             Ok(())
@@ -279,5 +299,4 @@ impl<I, R, S> UdpServer<I, R, S>
             panic!("not found input")
         }
     }
-
 }

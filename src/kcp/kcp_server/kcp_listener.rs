@@ -168,11 +168,12 @@ impl<S,R> KcpListener<S,R>
     /// 异常输入
     /// 打印日志
     #[inline]
-    fn err_input(addr: Option<SocketAddr>, err: Box<dyn Error>) {
+    fn err_input(addr: Option<SocketAddr>, err: Box<dyn Error>)->bool {
         match addr {
             Some(addr) => error!("udp server {} err:{}",addr, err),
             None => error!("udp server err:{}", err)
         }
+        false
     }
 
     /// 生成一个u32的conv
