@@ -1,4 +1,5 @@
 #![feature(async_closure)]
+#![allow(dead_code)]
 mod udp;
 mod kcp;
 mod client;

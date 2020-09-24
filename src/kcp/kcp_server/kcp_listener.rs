@@ -15,7 +15,6 @@ use bytes::{Bytes, BytesMut, BufMut};
 use super::super::kcp_module::Kcp;
 use tokio::time::delay_for;
 use std::future::Future;
-use tokio::net::udp::SendHalf;
 use ahash::AHashMap;
 
 
@@ -192,7 +191,7 @@ impl<S,R> KcpListener<S,R>
    #[inline(always)]
     async fn buff_input(
        this: Arc<Self>,
-       mut sender: SendUDP,
+       sender: SendUDP,
        addr: SocketAddr,
        data: Vec<u8>,
     ) -> Result<(), Box<dyn Error>> {
@@ -206,7 +205,7 @@ impl<S,R> KcpListener<S,R>
            Self::make_kcp_peer(this,sender,addr,data).await?;
        }
        else{
-           sender.send((data,addr)).await?;
+           sender.send((data,addr))?;
        }
        Ok(())
    }
@@ -259,7 +258,7 @@ impl<S,R> KcpListener<S,R>
     /// 首先判断 是否第一次发包
     /// 如果第一次发包 看看发的是不是 [u8;4] 是的话 生成一个conv id,同时配置一个KcpPeer存储于UDP TOKEN中
     #[inline(always)]
-    async fn make_kcp_peer(this: Arc<Self>, mut sender: SendUDP, addr: SocketAddr, data: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    async fn make_kcp_peer(this: Arc<Self>, sender: SendUDP, addr: SocketAddr, data: Vec<u8>) -> Result<(), Box<dyn Error>> {
         // 清除上一次的kcp
         // 创建一个 conv 写入临时连接表
         // 给客户端回复 conv
@@ -269,7 +268,7 @@ impl<S,R> KcpListener<S,R>
         let mut buff = BytesMut::new();
         buff.put_slice(&data);
         buff.put_u32_le(conv);
-        sender.send((buff.to_vec(),addr)).await?;
+        sender.send((buff.to_vec(),addr))?;
         Ok(())
     }
 

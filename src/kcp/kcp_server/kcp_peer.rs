@@ -43,18 +43,18 @@ impl KcpLock{
     #[inline]
     pub async fn update(&self, current: u32) ->  KcpResult<u32>{
         let mut p= self.0.lock_arc().await;
-        p.update(current).await?;
+        p.update(current)?;
         Ok(p.check(current))
     }
 
     #[inline]
     pub async fn flush(&self) -> KcpResult<()>{
-        self.0.lock_arc().await.flush().await
+        self.0.lock_arc().await.flush()
     }
 
     #[inline]
     pub async fn flush_async(&self)->  KcpResult<()>{
-        self.0.lock_arc().await.flush_async().await
+        self.0.lock_arc().await.flush_async()
     }
 }
 

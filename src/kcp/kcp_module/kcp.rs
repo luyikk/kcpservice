@@ -7,11 +7,8 @@ use std::io::{self, Cursor, Read, Write};
 use super::error::Error;
 use super::KcpResult;
 use bytes::{Buf, BufMut, BytesMut, Bytes};
-use std::sync::Arc;
 use log::*;
 use std::cmp::Ordering;
-use async_mutex::Mutex;
-use tokio::net::udp::SendHalf;
 use std::net::SocketAddr;
 use crate::udp::SendUDP;
 use tokio::io::ErrorKind;
@@ -133,9 +130,9 @@ impl KcpSegment {
 struct KcpOutput(pub SendUDP,pub SocketAddr);
 
 impl KcpOutput{
-    pub async fn send(&self,data:&[u8])->io::Result<usize>{
-        let mut sender= self.0.clone();
-        if let Err(er) =sender.send((data.to_vec(),self.1)).await{
+    pub fn send(&self,data:&[u8])->io::Result<usize>{
+        //let mut sender= self.0.clone();
+        if let Err(er) =self.0.send((data.to_vec(),self.1)){
             return  Err(io::Error::new(ErrorKind::Other,er))
         }
         Ok(0)
@@ -756,12 +753,12 @@ impl Kcp {
         }
     }
 
-     async fn _flush_ack(&mut self, segment: &mut KcpSegment) -> KcpResult<()> {
+    fn _flush_ack(&mut self, segment: &mut KcpSegment) -> KcpResult<()> {
         // flush acknowledges
         // while let Some((sn, ts)) = self.acklist.pop_front() {
         for &(sn, ts) in &self.acklist {
             if self.buf.len() + KCP_OVERHEAD > self.mtu as usize {
-                self.output.send(&self.buf).await ?;
+                self.output.send(&self.buf)?;
                 self.buf.clear();
             }
             segment.sn = sn;
@@ -797,12 +794,12 @@ impl Kcp {
         }
     }
 
-   async fn flush_probe_commands(&mut self, segment: &mut KcpSegment) -> KcpResult<()> {
+   fn flush_probe_commands(&mut self, segment: &mut KcpSegment) -> KcpResult<()> {
         // flush window probing commands
         if (self.probe & KCP_ASK_SEND) != 0 {
             segment.cmd = KCP_CMD_WASK;
             if self.buf.len() + KCP_OVERHEAD > self.mtu as usize {
-                self.output.send(&self.buf).await?;
+                self.output.send(&self.buf)?;
                 self.buf.clear();
             }
             segment.encode(&mut self.buf);
@@ -812,7 +809,7 @@ impl Kcp {
         if (self.probe & KCP_ASK_TELL) != 0 {
             segment.cmd = KCP_CMD_WINS;
             if self.buf.len() + KCP_OVERHEAD > self.mtu as usize {
-                self.output.send(&self.buf).await?;
+                self.output.send(&self.buf)?;
                 self.buf.clear();
             }
             segment.encode(&mut self.buf);
@@ -824,7 +821,7 @@ impl Kcp {
     }
 
     /// Flush pending ACKs
-    pub async fn flush_ack(&mut self) -> KcpResult<()> {
+    pub fn flush_ack(&mut self) -> KcpResult<()> {
         if !self.updated {
             debug!("flush updated() must be called at least once");
             return Err(Error::NeedUpdate);
@@ -836,11 +833,11 @@ impl Kcp {
         segment.wnd = self.wnd_unused();
         segment.una = self.rcv_nxt;
 
-        self._flush_ack(&mut segment).await
+        self._flush_ack(&mut segment)
     }
 
     /// Flush pending data in buffer.
-    pub async fn flush(&mut self) -> KcpResult<()> {
+    pub fn flush(&mut self) -> KcpResult<()> {
         if !self.updated {
             debug!("flush updated() must be called at least once");
             return Ok(());
@@ -852,9 +849,9 @@ impl Kcp {
         segment.wnd = self.wnd_unused();
         segment.una = self.rcv_nxt;
 
-        self._flush_ack(&mut segment).await?;
+        self._flush_ack(&mut segment)?;
         self.probe_wnd_size();
-        self.flush_probe_commands(&mut segment).await?;
+        self.flush_probe_commands(&mut segment)?;
 
         // println!("SNDBUF size {}", self.snd_buf.len());
 
@@ -932,7 +929,7 @@ impl Kcp {
                 let need = KCP_OVERHEAD + snd_segment.data.len();
 
                 if self.buf.len() + need > self.mtu as usize {
-                    self.output.send(&self.buf).await?;
+                    self.output.send(&self.buf)?;
                     self.buf.clear();
                 }
 
@@ -946,7 +943,7 @@ impl Kcp {
 
         // Flush all data in buffer
         if !self.buf.is_empty() {
-            self.output.send(&self.buf).await?;
+            self.output.send(&self.buf)?;
             self.buf.clear();
         }
 
@@ -978,7 +975,7 @@ impl Kcp {
         Ok(())
     }
 
-    pub async fn flush_async(&mut self)-> KcpResult<()> {
+    pub fn flush_async(&mut self)-> KcpResult<()> {
         self.current += 10;
 
         if !self.updated {
@@ -986,14 +983,14 @@ impl Kcp {
             self.ts_flush = self.current;
         }
 
-        self.flush().await?;
+        self.flush()?;
         Ok(())
     }
 
     /// Update state every 10ms ~ 100ms.
     ///
     /// Or you can ask `check` when to call this again.
-    pub async fn update(&mut self, current: u32) -> KcpResult<()> {
+    pub fn update(&mut self, current: u32) -> KcpResult<()> {
         self.current = current;
 
         if !self.updated {
@@ -1013,7 +1010,7 @@ impl Kcp {
             if timediff(self.current, self.ts_flush) >= 0 {
                 self.ts_flush = self.current + self.interval;
             }
-            self.flush().await?;
+            self.flush()?;
         }
 
         Ok(())
