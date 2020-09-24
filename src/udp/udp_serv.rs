@@ -7,15 +7,45 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use std::cell::RefCell;
 use super::send::{SendUDP, SendPool};
 use tokio::net::udp::RecvHalf;
 
 #[cfg(not(target_os = "windows"))]
 use net2::unix::UnixUdpBuilderExt;
+use std::fmt::{Debug, Formatter};
 
 
+/// 用于通知主线程具体工作
+
+pub enum RecvType{
+    INPUT(UnboundedSender<(Vec<u8>,SocketAddr)>,SocketAddr,Vec<u8>),
+    UPDATE(u32,Arc<dyn IOUpdate>),
+    REMOVE(Vec<u32>)
+}
+
+impl Debug for RecvType{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RecvType::INPUT(_,_,_)=>{
+                f.debug_struct("INPUT").finish()
+            },
+            RecvType::UPDATE(_,_)=>{
+                f.debug_struct("UPDATE").finish()
+            },
+            RecvType::REMOVE(_)=>{
+                f.debug_struct("REMOVE").finish()
+            }
+        }
+    }
+}
+
+/// 用于通知主线程刷新
+
+pub trait IOUpdate:Send+Sync{
+    fn update(&self, current: u32) ->  Result<(), Box<dyn Error>>;
+}
 
 /// UDP 单个包最大大小,默认4096 主要看MTU一般不会超过1500在internet 上
 /// 如果局域网有可能大点,4096一般够用.
@@ -50,8 +80,19 @@ pub struct UdpServer<I, R, S>
     udp_contexts: Vec<UdpContext>,
     input: Option<Arc<I>>,
     error_input: Option<ErrorInput>,
+    remove_event:Option<Box<dyn Fn(Vec<u32>)>>,
+    msg_tx:RefCell<Option<UnboundedSender<RecvType>>>
 }
 
+unsafe impl<I, R, S> Send for UdpServer<I, R, S>  where
+    I: Fn(Arc<S>,SendUDP, SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
+    R: Future<Output = Result<(), Box<dyn Error>>>,
+    S: Sync +Send+'static{}
+
+unsafe impl<I, R, S> Sync for UdpServer<I, R, S>  where
+    I: Fn(Arc<S>,SendUDP, SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
+    R: Future<Output = Result<(), Box<dyn Error>>>,
+    S: Sync +Send+'static{}
 
 
 /// 用来存储Token
@@ -181,9 +222,7 @@ impl<I, R, S> UdpServer<I, R, S>
     /// 已达到 M级的DPS 数量
     pub async fn new_inner<A: ToSocketAddrs>(addr: A, inner:Arc<S>) -> Result<Self, Box<dyn Error>> {
         let udp_list = Self::create_udp_socket_list(&addr, Self::get_cpu_count())?;
-
         let mut udp_map = vec![];
-
         let mut id = 1;
         for udp in udp_list {
             let (recv, send) = udp.split();
@@ -200,9 +239,18 @@ impl<I, R, S> UdpServer<I, R, S>
             udp_contexts: udp_map,
             input: None,
             error_input: None,
+            msg_tx:RefCell::new(None),
+            remove_event:None
         })
     }
 
+    /// 获取消息通知tx
+    pub fn get_msg_tx(&self)->Option<UnboundedSender<RecvType>>{
+        if let Some(ref tx)= *self.msg_tx.borrow() {
+            return Some(tx.clone())
+        }
+        None
+    }
 
 
     /// 设置收包函数
@@ -212,11 +260,14 @@ impl<I, R, S> UdpServer<I, R, S>
     }
 
     /// 设置错误输出
-    /// 返回bool 如果 true　表示停止服务
     pub fn set_err_input<P: Fn(Option<SocketAddr>, Box<dyn Error>)->bool + Send + 'static>(&mut self, err_input: P) {
         self.error_input = Some(Arc::new(Mutex::new(err_input)));
     }
 
+    /// 设置删除PEER 通知
+    pub fn set_remove_input<F:Fn(Vec<u32>) + Send + 'static>(&mut self,remove_input:F){
+        self.remove_event=Some(Box::new(remove_input));
+    }
 
 
     /// 启动服务
@@ -244,7 +295,6 @@ impl<I, R, S> UdpServer<I, R, S>
                     }))
                 }
             };
-
             let (tx, mut rx) = unbounded_channel();
             for udp_sock in self.udp_contexts.iter() {
                 let recv_sock = udp_sock.recv.borrow_mut().take();
@@ -258,9 +308,8 @@ impl<I, R, S> UdpServer<I, R, S>
                             let res = {
                                 recv_sock.recv_from(&mut buff).await
                             };
-
                             if let Ok((size, addr)) = res {
-                                if let Err(er) = move_data_tx.send((send_sock.clone(), addr, buff[..size].to_vec())) {
+                                if let Err(er) = move_data_tx.send(RecvType::INPUT(send_sock.clone(), addr, buff[..size].to_vec())) {
                                     let error = error_input.lock().await;
                                     let _ = error(Some(addr), Box::new(er));
                                     break;
@@ -276,22 +325,36 @@ impl<I, R, S> UdpServer<I, R, S>
                     });
                 }
             }
-
-            while let Some((send_sock,  addr, data)) = rx.recv().await {
-                let err= {
-                    let res = input(self.inner.clone(), send_sock, addr, data).await;
-                    match res {
-                        Err(er) => Some(format!("{}", er)),
-                        Ok(_) => None
-                    }
-                };
-                 if let Some(er_msg) = err {
-                    let error = err_input.lock().await;
-                    let stop = error(Some(addr), er_msg.into());
-                    if stop {
-                        break;
-                    }
+            self.msg_tx.borrow_mut().replace(tx);
+            while let Some(recv_type) = rx.recv().await {
+                match recv_type {
+                   RecvType::INPUT(send_sock,  addr, data)  =>{
+                       let err= {
+                           let res = input(self.inner.clone(), send_sock, addr, data).await;
+                           match res {
+                               Err(er) => Some(format!("{}", er)),
+                               Ok(_) => None
+                           }
+                       };
+                       if let Some(er_msg) = err {
+                           let error = err_input.lock().await;
+                           let stop = error(Some(addr), er_msg.into());
+                           if stop {
+                               break;
+                           }
+                       }
+                   },
+                   RecvType::UPDATE(time,peer)=>{
+                        peer.update(time)?;
+                   },
+                   RecvType::REMOVE(ids)=>{
+                        if let Some(ref remove_input)=self.remove_event{
+                            remove_input(ids);
+                        }
+                   }
                 }
+
+
             }
 
             Ok(())

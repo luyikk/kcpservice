@@ -1,60 +1,58 @@
-use async_mutex::Mutex;
-use crate::udp::TokenStore;
+use crate::udp::{TokenStore, IOUpdate};
 use super::super::kcp_module::{Kcp, KcpResult};
 use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
-use std::sync::Arc;
 use std::net::SocketAddr;
 use log::*;
-use std::cell::RefCell;
-
+use std::cell::{RefCell};
+use std::error::Error;
 
 /// KCP LOCK
 /// 将KCP 对象操作完全上锁,以保证内存安全 通知简化调用
-pub struct KcpLock(Arc<Mutex<Kcp>>);
+pub struct KcpLock(RefCell<Kcp>);
 unsafe impl Send for KcpLock{}
 unsafe impl Sync for KcpLock{}
 
 impl KcpLock{
     #[inline]
-    pub async fn peeksize(&self)-> KcpResult<usize>{
-        self.0.lock_arc().await.peeksize()
+    pub fn peeksize(&self)-> KcpResult<usize>{
+        self.0.borrow_mut().peeksize()
     }
 
     #[inline]
-    pub async fn check(&self,current:u32)->u32{
-        self.0.lock_arc().await.check(current)
+    pub fn check(&self,current:u32)->u32{
+        self.0.borrow_mut().check(current)
     }
 
     #[inline]
-    pub async fn input(&self, buf: &[u8]) -> KcpResult<usize>{
-        self.0.lock_arc().await.input(buf)
+    pub fn input(&self, buf: &[u8]) -> KcpResult<usize>{
+        self.0.borrow_mut().input(buf)
     }
 
     #[inline]
-    pub async fn recv(&self, buf: &mut [u8]) -> KcpResult<usize>{
-        self.0.lock_arc().await.recv(buf)
+    pub fn recv(&self, buf: &mut [u8]) -> KcpResult<usize>{
+        self.0.borrow_mut().recv(buf)
     }
 
     #[inline]
-    pub async fn send(&self, buf: &[u8]) -> KcpResult<usize>{
-        self.0.lock_arc().await.send(buf)
+    pub fn send(&self, buf: &[u8]) -> KcpResult<usize>{
+        self.0.borrow_mut().send(buf)
     }
 
     #[inline]
-    pub async fn update(&self, current: u32) ->  KcpResult<u32>{
-        let mut p= self.0.lock_arc().await;
+    pub fn update(&self, current: u32) ->  KcpResult<u32>{
+        let mut p= self.0.borrow_mut();
         p.update(current)?;
         Ok(p.check(current))
     }
 
     #[inline]
-    pub async fn flush(&self) -> KcpResult<()>{
-        self.0.lock_arc().await.flush()
+    pub fn flush(&self) -> KcpResult<()>{
+        self.0.borrow_mut().flush()
     }
 
     #[inline]
-    pub async fn flush_async(&self)->  KcpResult<()>{
-        self.0.lock_arc().await.flush_async()
+    pub fn flush_async(&self)->  KcpResult<()>{
+        self.0.borrow_mut().flush_async()
     }
 }
 
@@ -62,7 +60,7 @@ impl KcpLock{
 impl Kcp{
     #[inline]
     pub fn get_lock(self)->KcpLock{
-        let recv = Arc::new(Mutex::new(self));
+        let recv =RefCell::new(self);
         KcpLock(recv)
     }
 }
@@ -90,6 +88,7 @@ impl<T:Send> Drop for KcpPeer<T>{
     }
 }
 
+
 unsafe impl<T: Send> Send for KcpPeer<T>{}
 unsafe impl<T: Send> Sync for KcpPeer<T>{}
 
@@ -104,41 +103,49 @@ impl <T:Send> KcpPeer<T>{
     }
 
     #[inline]
-    pub async fn peeksize(&self)-> KcpResult<usize>{
-        self.kcp.peeksize().await
+    pub fn peeksize(&self)-> KcpResult<usize>{
+        self.kcp.peeksize()
     }
 
     #[inline]
-    pub async fn input(&self, buf: &[u8]) -> KcpResult<usize>{
+    pub fn input(&self, buf: &[u8]) -> KcpResult<usize>{
         self.next_update_time.store(0,Ordering::Release);
-        self.kcp.input(buf).await
+        self.kcp.input(buf)
     }
 
     #[inline]
-    pub async fn recv(&self, buf: &mut [u8]) -> KcpResult<usize>{
-        self.kcp.recv(buf).await
+    pub fn recv(&self, buf: &mut [u8]) -> KcpResult<usize>{
+        self.kcp.recv(buf)
     }
 
     #[inline]
-    pub async fn send(&self, buf: &[u8]) -> KcpResult<usize>{
+    pub fn send(&self, buf: &[u8]) -> KcpResult<usize>{
         self.next_update_time.store(0,Ordering::Release);
-        self.kcp.send(buf).await
+        self.kcp.send(buf)
     }
 
     #[inline]
-    pub async fn update(&self, current: u32) ->  KcpResult<()>{
-        let next= self.kcp.update(current).await?;
+    pub fn update(&self, current: u32) ->  KcpResult<()>{
+        let next= self.kcp.update(current)?;
         Ok(self.next_update_time.store(next+current,Ordering::Release))
     }
 
     #[inline]
-    pub async fn flush(&self) -> KcpResult<()>{
-        self.kcp.flush().await
+    pub fn flush(&self) -> KcpResult<()>{
+        self.kcp.flush()
     }
 
     #[inline]
-    pub async fn flush_async(&self)->  KcpResult<()>{
-        self.kcp.flush_async().await
+    pub fn flush_async(&self)->  KcpResult<()>{
+        self.kcp.flush_async()
     }
 
+}
+
+
+impl<T:Send> IOUpdate for KcpPeer<T>{
+    fn update(&self, current: u32) -> Result<(), Box<dyn Error>> {
+        self.update(current)?;
+        Ok(())
+    }
 }

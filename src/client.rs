@@ -6,16 +6,21 @@ use std::error::Error;
 use log::*;
 use std::net::SocketAddr;
 use xbinary::*;
-use async_mutex::Mutex;
+
 use tokio::time::{delay_for, Duration};
+use std::cell::RefCell;
 
 /// 玩家PEER
 pub struct ClientPeer{
     pub session_id:u32,
     pub kcp_peer:Weak<KcpPeer<Arc<ClientPeer>>>,
-    pub buff_pool:Mutex<BuffPool>,
+    pub buff_pool:RefCell<BuffPool>,
     pub is_open_zero:bool
 }
+
+unsafe  impl Send for ClientPeer{}
+unsafe  impl Sync for ClientPeer{}
+
 
 impl Drop for ClientPeer{
     fn drop(&mut self) {
@@ -29,7 +34,7 @@ impl ClientPeer{
         ClientPeer{
             session_id,
             kcp_peer,
-            buff_pool:Mutex::new(BuffPool::new(512*1024)),
+            buff_pool:RefCell::new(BuffPool::new(512*1024)),
             is_open_zero:false
         }
     }
@@ -48,25 +53,32 @@ impl ClientPeer{
 
     /// 网络数据包输入,处理
     pub async fn input_buff(&self,buff:&[u8])->Result<(),Box<dyn Error>>{
-        let mut buff_pool=self.buff_pool.lock().await;
-
-        buff_pool.write(buff);
-        loop{
-            match buff_pool.read() {
-                Ok(data)=>{
-                    if let Some(data) = data {
-                        self.input_data(Bytes::from(data)).await?;
-                    } else {
-                        buff_pool.advance();
+       let input_data_array= {
+            let mut input_data_vec = Vec::with_capacity(1);
+            let mut buff_pool = self.buff_pool.borrow_mut();
+            buff_pool.write(buff);
+            loop {
+                match buff_pool.read() {
+                    Ok(data) => {
+                        if let Some(data) = data {
+                            input_data_vec.push(Bytes::from(data));
+                        } else {
+                            buff_pool.advance();
+                            break;
+                        }
+                    },
+                    Err(msg) => {
+                        error!("{}-{:?} error:{}", self.session_id, self.get_addr(), msg);
+                        buff_pool.reset();
                         break;
                     }
-                },
-                Err(msg)=>{
-                    error!("{}-{:?} error:{}",self.session_id,self.get_addr(),msg);
-                    buff_pool.reset();
-                    break;
                 }
             }
+           input_data_vec
+        };
+
+        for data in input_data_array {
+            self.input_data(data).await?;
         }
 
         Ok(())
@@ -148,7 +160,7 @@ impl ClientPeer{
             writer.write(data);
             writer.set_position(0);
             writer.put_u32_le(writer.len() as u32 -4);
-            return Ok(kcp_peer.send(&writer).await?)
+            return Ok(kcp_peer.send(&writer)?)
         }
         Ok(0)
     }
@@ -161,7 +173,7 @@ impl ClientPeer{
             writer.put_u32_le(0xFFFFFFFF);
             writer.write_string_bit7_len("close");
             writer.bit7_write_u32(service_id);
-            return Ok(kcp_peer.send(&writer).await?)
+            return Ok(kcp_peer.send(&writer)?)
         }
         Ok(0)
     }

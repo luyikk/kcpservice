@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use async_mutex::Mutex;
 use super::udp_server_store::UdpServerStore;
 use std::sync::atomic::{AtomicU32, Ordering, AtomicI64};
 use super::kcp_peer::KcpPeer;
@@ -9,14 +8,13 @@ use std::time::Duration;
 use super::super::kcp_module::kcp_config::KcpConfig;
 use std::cell::{UnsafeCell, RefCell};
 use std::error::Error;
-use crate::udp::{UdpServer, TokenStore, SendUDP};
+use crate::udp::{UdpServer, TokenStore, SendUDP, RecvType};
 use log::*;
 use bytes::{Bytes, BytesMut, BufMut};
 use super::super::kcp_module::Kcp;
 use tokio::time::delay_for;
 use std::future::Future;
-use ahash::AHashMap;
-
+use super::kcp_peer_manager::KcpPeerManager;
 
 
 /// KcpListener 整个KCP 服务的入口点
@@ -29,7 +27,7 @@ pub struct KcpListener<S,R>
     config: KcpConfig,
     conv_make: AtomicU32,
     buff_input: UnsafeCell<BuffInputStore<S,R>>,
-    peers: Arc<Mutex<AHashMap<u32, Arc<KcpPeer<S>>>>>
+    peers: Arc<KcpPeerManager<S>>
 }
 
 unsafe impl<S,R>  Send for KcpListener<S,R> where S: Send + 'static,
@@ -54,7 +52,7 @@ impl<S,R> KcpListener<S,R>
             buff_input: UnsafeCell::new(BuffInputStore(None)),
             conv_make: AtomicU32::new(1),
             config,
-            peers: Arc::new(Mutex::new(AHashMap::new()))
+            peers: Arc::new(KcpPeerManager::new())
         };
 
         // 将kcp_listener 放入arc中
@@ -66,6 +64,14 @@ impl<S,R> KcpListener<S,R>
         udp_serv.set_input(Self::buff_input);
         //设置错误输出
         udp_serv.set_err_input(Self::err_input);
+
+        //设置删除PEER通知
+        let remove_kcp_listener=kcp_listener_arc.clone();
+        udp_serv.set_remove_input(move |ids|{
+            for conv in ids  {
+                remove_kcp_listener.peers.remove(&conv);
+            }
+        });
 
         //将UDP server 配置到udp_server属性中
         {
@@ -90,14 +96,15 @@ impl<S,R> KcpListener<S,R>
 
     /// 启动服务
     pub async fn start(&self) -> Result<(), Box<dyn Error>> {
-
         if let Some(udp_server) =self.udp_server.get() {
             self.update();
             self.cleanup();
             udp_server.start().await?;
         }
-
-        Err("udp_server is nil".into())
+        else {
+            return Err("udp_server is nil".into())
+        }
+        Ok(())
     }
 
     /// 获取当前时间戳 转换为u32
@@ -110,24 +117,24 @@ impl<S,R> KcpListener<S,R>
 
     /// 检查和清除没有用的KCP
     #[inline]
-    fn cleanup(&self){
-        let peers=self.peers.clone();
-        if self.udp_server.get().is_some() {
+    fn cleanup(&self) {
+        let peers = self.peers.clone();
+        if let Some(udp_server) = self.udp_server.get() {
             tokio::spawn(async move {
                 loop {
-                    let res = peers.try_lock_arc();
-                    if let Some(mut peers) = res {
-                        let mut remove_vec = vec![];
-                        for conv in peers.keys() {
-                            if let Some(peer) = peers.get(conv) {
-                                let time = peer.last_rev_time.load(Ordering::Acquire);
-                                if chrono::Local::now().timestamp() - time > 30 {
-                                    remove_vec.push(*conv);
-                                }
+                    let mut remove_vec = vec![];
+                    for conv in peers.keys() {
+                        if let Some(peer) = peers.get(conv) {
+                            let time = peer.last_rev_time.load(Ordering::Acquire);
+                            if chrono::Local::now().timestamp() - time > 30 {
+                                remove_vec.push(*conv);
                             }
                         }
-                        for conv in remove_vec {
-                            peers.remove(&conv);
+                    }
+
+                    if let Some(tx) = udp_server.get_msg_tx() {
+                        if let Err(er) = tx.send(RecvType::REMOVE(remove_vec)) {
+                            error!("remove error:{:?}", er)
                         }
                     }
 
@@ -139,30 +146,32 @@ impl<S,R> KcpListener<S,R>
 
 
 
+
     /// 刷新KCP
     #[inline]
     fn update(&self) {
         let peers=self.peers.clone();
-        tokio::spawn( async move {
-            loop {
-                let time=Self::current();
-                let res = peers.try_lock_arc();
-                if let Some(mut peers) = res {
-                    for (_, p) in peers.iter_mut() {
-                        let peer = p.clone();
-                        if time>=peer.next_update_time.load(Ordering::Acquire) {
-                            tokio::spawn(async move {
-                                if let Err(err) = peer.update(time).await {
-                                    error!("update error:{}", err);
+        if let Some(udp_server)=  self.udp_server.get() {
+            tokio::spawn(async move {
+                loop {
+                    let time = Self::current();
+
+                        for p in peers.values() {
+                            let peer = p.clone();
+                            if time >= peer.next_update_time.load(Ordering::Acquire) {
+                                if let Some(tx) = udp_server.get_msg_tx() {
+                                    if let Err(er) = tx.send(RecvType::UPDATE(time, peer)) {
+                                        error!("update error:{:?}", er)
+                                    }
                                 }
-                            });
+                            }
                         }
-                    }
+
+                    //等待5毫秒后再重新UPDATE
+                    delay_for(Duration::from_millis(2)).await;
                 }
-                //等待5毫秒后再重新UPDATE
-                delay_for(Duration::from_millis(2)).await;
-            }
-        });
+            });
+        }
     }
 
     /// 异常输入
@@ -214,9 +223,9 @@ impl<S,R> KcpListener<S,R>
     /// 读取数据包
     #[inline(always)]
     async fn recv_buff(this:Arc<Self>, kcp_peer: Arc<KcpPeer<S>>)->Result<(), Box<dyn Error>> {
-        while let Ok(len) = kcp_peer.peeksize().await {
+        while let Ok(len) = kcp_peer.peeksize() {
             let mut buff = vec![0; len];
-            if  kcp_peer.recv(&mut buff).await.is_ok() {
+            if  kcp_peer.recv(&mut buff).is_ok() {
                 let p = this.buff_input.get() as usize;
                 if let Some(input) = (*unsafe { std::mem::transmute::<_, &mut BuffInputStore<S, R>>(p) }).get() {
                     input(kcp_peer.clone(), Bytes::from(buff)).await?;
@@ -235,23 +244,21 @@ impl<S,R> KcpListener<S,R>
         let conv = u32::from_le_bytes(conv_data);
 
         let kcp_peer:Arc<KcpPeer<S>> = {
-            let mut peers=this.peers.lock_arc().await;
-            if let Some(peer)= peers.get(&conv){
-                peer.clone()
+            if let Some(peer)= this.peers.get(&conv){
+                peer
             }
             else{
                 let peer=Self::make_kcp_peer_ptr(conv, sender, addr, this.clone()).await;
-                peers.insert(conv,peer.clone());
+                this.peers.insert(conv,peer.clone());
                 peer
             }
         };
 
-        if let Err(er) = kcp_peer.input(data).await {
+        if let Err(er) = kcp_peer.input(data) {
             error!("get_kcp_peer input is err:{}", er);
         }
 
         kcp_peer.last_rev_time.store(chrono::Local::now().timestamp(), Ordering::Release);
-
         return kcp_peer
     }
 
@@ -278,15 +285,12 @@ impl<S,R> KcpListener<S,R>
     async fn make_kcp_peer_ptr(conv:u32,sender: SendUDP, addr: SocketAddr,this:Arc<KcpListener<S,R>>)-> Arc<KcpPeer<S>>{
         let mut kcp = Kcp::new(conv, sender,addr);
         this.config.apply_config(&mut kcp);
-        let disconnect_event =move |conv:u32|{
-            tokio::spawn(async move{
-                let mut peers= this.peers.lock_arc().await;
-                peers.remove(&conv);
-            });
+        let disconnect_event =move |conv:u32| {
+            this.peers.remove(&conv);
         };
 
         let kcp_lock= kcp.get_lock();
-        let  kcp_peer_obj = KcpPeer {
+        let kcp_peer_obj = KcpPeer {
             kcp:kcp_lock,
             conv,
             addr,
