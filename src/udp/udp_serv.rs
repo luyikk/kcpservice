@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
-use std::cell::RefCell;
+use std::cell::{RefCell, UnsafeCell};
 use super::send::{SendUDP, SendPool};
 use tokio::net::udp::RecvHalf;
 
@@ -81,7 +81,7 @@ pub struct UdpServer<I, R, S>
     input: Option<Arc<I>>,
     error_input: Option<ErrorInput>,
     remove_event:Option<Box<dyn Fn(Vec<u32>)>>,
-    msg_tx:RefCell<Option<UnboundedSender<RecvType>>>
+    msg_tx:UnsafeCell<Option<UnboundedSender<RecvType>>>
 }
 
 unsafe impl<I, R, S> Send for UdpServer<I, R, S>  where
@@ -239,17 +239,19 @@ impl<I, R, S> UdpServer<I, R, S>
             udp_contexts: udp_map,
             input: None,
             error_input: None,
-            msg_tx:RefCell::new(None),
+            msg_tx:UnsafeCell::new(None),
             remove_event:None
         })
     }
 
     /// 获取消息通知tx
     pub fn get_msg_tx(&self)->Option<UnboundedSender<RecvType>>{
-        if let Some(ref tx)= *self.msg_tx.borrow() {
-            return Some(tx.clone())
+        unsafe {
+            if let Some(ref tx) = *self.msg_tx.get() {
+                return Some(tx.clone())
+            }
+            None
         }
-        None
     }
 
 
@@ -325,7 +327,9 @@ impl<I, R, S> UdpServer<I, R, S>
                     });
                 }
             }
-            self.msg_tx.borrow_mut().replace(tx);
+            unsafe {
+                (*self.msg_tx.get()).replace(tx);
+            }
             while let Some(recv_type) = rx.recv().await {
                 match recv_type {
                    RecvType::INPUT(send_sock,  addr, data)  =>{
