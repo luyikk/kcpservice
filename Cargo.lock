@@ -220,6 +220,7 @@ dependencies = [
  "bytes",
  "chrono",
  "env_logger",
+ "lazy_static",
  "log",
  "mimalloc",
  "net2",

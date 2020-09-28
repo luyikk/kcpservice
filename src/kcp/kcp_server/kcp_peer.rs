@@ -1,71 +1,69 @@
-use crate::udp::{TokenStore, IOUpdate};
 use super::super::kcp_module::{Kcp, KcpResult};
-use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
-use std::net::SocketAddr;
+use crate::udp::{RecvType, TokenStore};
+use async_mutex::Mutex;
 use log::*;
-use std::cell::{RefCell};
-use std::error::Error;
+use std::cell::RefCell;
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
+use tokio::sync::mpsc::Sender;
 
 /// KCP LOCK
 /// 将KCP 对象操作完全上锁,以保证内存安全 通知简化调用
-pub struct KcpLock(RefCell<Kcp>);
-unsafe impl Send for KcpLock{}
-unsafe impl Sync for KcpLock{}
+pub struct KcpLock(Mutex<Kcp>);
+unsafe impl Send for KcpLock {}
+unsafe impl Sync for KcpLock {}
 
-impl KcpLock{
+impl KcpLock {
     #[inline]
-    pub fn peeksize(&self)-> KcpResult<usize>{
-        self.0.borrow_mut().peeksize()
+    pub async fn peeksize(&self) -> KcpResult<usize> {
+        self.0.lock().await.peeksize()
     }
 
     #[inline]
-    pub fn check(&self,current:u32)->u32{
-        self.0.borrow_mut().check(current)
+    pub async fn check(&self, current: u32) -> u32 {
+        self.0.lock().await.check(current)
     }
 
     #[inline]
-    pub fn input(&self, buf: &[u8]) -> KcpResult<usize>{
-        self.0.borrow_mut().input(buf)
+    pub async fn input(&self, buf: &[u8]) -> KcpResult<usize> {
+        self.0.lock().await.input(buf)
     }
 
     #[inline]
-    pub fn recv(&self, buf: &mut [u8]) -> KcpResult<usize>{
-        self.0.borrow_mut().recv(buf)
+    pub async fn recv(&self, buf: &mut [u8]) -> KcpResult<usize> {
+        self.0.lock().await.recv(buf)
     }
 
     #[inline]
-    pub fn send(&self, buf: &[u8]) -> KcpResult<usize>{
-        self.0.borrow_mut().send(buf)
+    pub async fn send(&self, buf: &[u8]) -> KcpResult<usize> {
+        self.0.lock().await.send(buf)
     }
 
     #[inline]
-    pub fn update(&self, current: u32) ->  KcpResult<u32>{
-        let mut p= self.0.borrow_mut();
+    pub async fn update(&self, current: u32) -> KcpResult<u32> {
+        let mut p = self.0.lock().await;
         p.update(current)?;
         Ok(p.check(current))
     }
 
     #[inline]
-    pub fn flush(&self) -> KcpResult<()>{
-        self.0.borrow_mut().flush()
+    pub async fn flush(&self) -> KcpResult<()> {
+        self.0.lock().await.flush()
     }
 
     #[inline]
-    pub fn flush_async(&self)->  KcpResult<()>{
-        self.0.borrow_mut().flush_async()
+    pub async fn flush_async(&self) -> KcpResult<()> {
+        self.0.lock().await.flush_async()
     }
 }
 
-
-impl Kcp{
+impl Kcp {
     #[inline]
-    pub fn get_lock(self)->KcpLock{
-        let recv =RefCell::new(self);
+    pub fn get_lock(self) -> KcpLock {
+        let recv = Mutex::new(self);
         KcpLock(recv)
     }
 }
-
-
 
 /// KCP Peer
 /// UDP的包进入 KCP PEER 经过KCP 处理后 输出
@@ -73,79 +71,68 @@ impl Kcp{
 /// 同时还需要一个UPDATE 线程 去10MS 一次的运行KCP UPDATE
 /// token 用于扩赞逻辑上下文
 pub struct KcpPeer<T: Send> {
-    pub kcp:KcpLock,
+    pub kcp: KcpLock,
     pub conv: u32,
     pub addr: SocketAddr,
     pub token: RefCell<TokenStore<T>>,
     pub last_rev_time: AtomicI64,
-    pub next_update_time:AtomicU32,
-    pub disconnect_event: RefCell<Option<Box<dyn FnOnce(u32)>>>
+    pub next_update_time: AtomicU32,
+    pub disconnect_event: RefCell<Option<Box<dyn FnOnce(u32)>>>,
+    pub(crate) main_tx: Sender<RecvType>,
 }
 
-impl<T:Send> Drop for KcpPeer<T>{
+impl<T: Send> Drop for KcpPeer<T> {
     fn drop(&mut self) {
-        info!("kcp_peer:{} is Drop",self.conv);
+        info!("kcp_peer:{} is Drop", self.conv);
     }
 }
 
-
-unsafe impl<T: Send> Send for KcpPeer<T>{}
-unsafe impl<T: Send> Sync for KcpPeer<T>{}
+unsafe impl<T: Send> Send for KcpPeer<T> {}
+unsafe impl<T: Send> Sync for KcpPeer<T> {}
 
 /// 简化KCP PEER 函数
-impl <T:Send> KcpPeer<T>{
-
-    pub fn disconnect(&self) {
+impl<T: Send> KcpPeer<T> {
+    pub(crate) fn disconnect(&self) {
         let call_value = self.disconnect_event.borrow_mut().take();
         if let Some(call) = call_value {
             call(self.conv);
         }
     }
 
-    #[inline]
-    pub fn peeksize(&self)-> KcpResult<usize>{
-        self.kcp.peeksize()
+    pub(crate) async fn peeksize(&self) -> KcpResult<usize> {
+        self.kcp.peeksize().await
     }
 
-    #[inline]
-    pub fn input(&self, buf: &[u8]) -> KcpResult<usize>{
-        self.next_update_time.store(0,Ordering::Release);
-        self.kcp.input(buf)
+    pub(crate) async fn input(&self, buf: &[u8]) -> KcpResult<usize> {
+        self.next_update_time.store(0, Ordering::Release);
+        self.kcp.input(buf).await
     }
 
-    #[inline]
-    pub fn recv(&self, buf: &mut [u8]) -> KcpResult<usize>{
-        self.kcp.recv(buf)
+    pub(crate) async fn recv(&self, buf: &mut [u8]) -> KcpResult<usize> {
+        self.kcp.recv(buf).await
     }
 
-    #[inline]
-    pub fn send(&self, buf: &[u8]) -> KcpResult<usize>{
-        self.next_update_time.store(0,Ordering::Release);
-        self.kcp.send(buf)
+    pub async fn send(&self, buf: &[u8]) -> KcpResult<usize> {
+        self.next_update_time.store(0, Ordering::Release);
+        self.kcp.send(buf).await
     }
 
-    #[inline]
-    pub fn update(&self, current: u32) ->  KcpResult<()>{
-        let next= self.kcp.update(current)?;
-        Ok(self.next_update_time.store(next+current,Ordering::Release))
+    pub(crate) async fn update(&self, current: u32) -> KcpResult<()> {
+        let next = self.kcp.update(current).await?;
+        Ok(self
+            .next_update_time
+            .store(next + current, Ordering::Release))
     }
 
-    #[inline]
-    pub fn flush(&self) -> KcpResult<()>{
-        self.kcp.flush()
+    pub(crate) async fn flush(&self) -> KcpResult<()> {
+        self.kcp.flush().await
     }
 
-    #[inline]
-    pub fn flush_async(&self)->  KcpResult<()>{
-        self.kcp.flush_async()
+    pub(crate) async fn flush_async(&self) -> KcpResult<()> {
+        self.kcp.flush_async().await
     }
 
-}
-
-
-impl<T:Send> IOUpdate for KcpPeer<T>{
-    fn update(&self, current: u32) -> Result<(), Box<dyn Error>> {
-        self.update(current)?;
-        Ok(())
+    pub fn get_main_tx(&self) -> Sender<RecvType> {
+        self.main_tx.clone()
     }
 }
