@@ -12,6 +12,10 @@ unsafe impl Sync for BuffPool {}
 
 impl BuffPool {
     pub fn new(capacity: usize) -> BuffPool {
+        if capacity<4{
+            panic!("capacity too small")
+        }
+
         BuffPool {
             data: Vec::with_capacity(capacity),
             offset: 0,
@@ -27,6 +31,9 @@ impl BuffPool {
     pub fn read(&mut self) -> Result<Option<Vec<u8>>, &'static str> {
         let offset = self.offset;
         if offset + 4 > self.data.len() {
+            if offset>0{
+                self.advance();
+            }
             return Ok(None);
         }
         let mut current = &self.data[offset..];
@@ -43,7 +50,7 @@ impl BuffPool {
     }
 
     /// 挪数据 从屁股到头
-    pub fn advance(&mut self) {
+    fn advance(&mut self) {
         if self.offset == 0 {
             return;
         }

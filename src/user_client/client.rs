@@ -57,8 +57,8 @@ impl ClientPeer {
                     Ok(data) => {
                         if let Some(data) = data {
                             input_data_vec.push(Bytes::from(data));
-                        } else {
-                            buff_pool.advance();
+                        }
+                        else{
                             break;
                         }
                     }
