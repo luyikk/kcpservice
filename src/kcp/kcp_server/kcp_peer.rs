@@ -92,7 +92,8 @@ unsafe impl<T: Send> Sync for KcpPeer<T> {}
 
 /// 简化KCP PEER 函数
 impl<T: Send> KcpPeer<T> {
-    pub(crate) fn disconnect(&self) {
+
+    pub fn disconnect(&self) {
         let call_value = self.disconnect_event.borrow_mut().take();
         if let Some(call) = call_value {
             call(self.conv);

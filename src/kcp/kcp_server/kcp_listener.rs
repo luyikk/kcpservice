@@ -12,9 +12,10 @@ use std::error::Error;
 use std::future::Future;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc};
 use std::time::Duration;
 use tokio::time::delay_for;
+use async_mutex::Mutex;
 
 /// KcpListener 整个KCP 服务的入口点
 /// config 存放KCP 配置
@@ -29,7 +30,7 @@ where
     conv_make: AtomicU32,
     buff_input: UnsafeCell<BuffInputStore<S, R>>,
     peers: Arc<KcpPeerManager<S>>,
-    peer_kcpdrop_event: RefCell<KcpPeerDropInputStore>,
+    peer_kcpdrop_event: Arc<Mutex<KcpPeerDropInputStore>>,
 }
 
 unsafe impl<S, R> Send for KcpListener<S, R>
@@ -64,7 +65,7 @@ where
             conv_make: AtomicU32::new(1),
             config,
             peers: Arc::new(KcpPeerManager::new()),
-            peer_kcpdrop_event: RefCell::new(KcpPeerDropInputStore::new()),
+            peer_kcpdrop_event:Arc::new(Mutex::new(KcpPeerDropInputStore::new())),
         };
 
         // 将kcp_listener 放入arc中
@@ -100,7 +101,7 @@ where
 
     /// 设置KCP_PEER 清理事件
     pub async fn set_kcpdrop_event_input(&self, f: fn(u32)) {
-        self.peer_kcpdrop_event.borrow_mut().set(f);
+        self.peer_kcpdrop_event.lock_arc().await.set(f);
     }
 
     /// 启动服务
@@ -126,7 +127,7 @@ where
     #[inline]
     fn cleanup(&self) {
         let peers = self.peers.clone();
-        let clean_input = self.peer_kcpdrop_event.borrow_mut().get();
+        let clean_input = self.peer_kcpdrop_event.clone();
         if let Some(udp_server) = self.udp_server.get() {
             tokio::spawn(async move {
                 let mut remove_vec = vec![];
@@ -145,7 +146,7 @@ where
                     if remove_vec.len() > 0 {
                         if let Some(mut tx) = udp_server.get_msg_tx() {
                             for conv in remove_vec.iter() {
-                                if let Some(clean_input) = clean_input {
+                                if let Some(clean_input) = clean_input.lock_arc().await.get() {
                                     clean_input(*conv);
                                 }
                                 if let Err(er) = tx.send(RecvType::REMOVE(*conv)).await {
@@ -312,8 +313,36 @@ where
         let mut kcp = Kcp::new(conv, sender, addr);
         let tx = this.udp_server.get().unwrap().get_msg_tx().unwrap();
         this.config.apply_config(&mut kcp);
+
+
         let disconnect_event = move |conv: u32| {
-            this.peers.remove(&conv);
+            match this.udp_server.get() {
+                Some(udp_server)=>{
+                    if let Some(mut tx) = udp_server.get_msg_tx() {
+                        let kcpdrop_event=this.peer_kcpdrop_event.clone();
+                        tokio::spawn(async move{
+                           if let Some(peer)= this.peers.get(&conv) {
+                               if let Some(kcpdrop_action) = kcpdrop_event.lock_arc().await.get() {
+                                   kcpdrop_action(conv);
+                               }
+                               if let Err(er) = tx.send(RecvType::REMOVE(conv)).await {
+                                   error!("disconnect remove error:{:?}", er)
+                               }
+                               //等待500毫秒后再清除PEER 以保障UPDATE 的时候PEER 还存在
+                               delay_for(Duration::from_millis(500)).await;
+                               drop(peer); //防优化
+                           }
+                        });
+                    }
+                    else{
+                        error!("disconnect not get msg tx")
+                    }
+                },
+                None=>{
+                    error!("disconnect not get udp server")
+                }
+            }
+
         };
 
         let kcp_lock = kcp.get_lock();
