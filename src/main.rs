@@ -7,18 +7,20 @@ mod udp;
 mod user_client;
 
 use crate::kcp::{KcpConfig, KcpListener, KcpNoDelayConfig, KcpPeer};
+
+use services::ServicesManager;
+use user_client::*;
+
 use std::error::Error;
+use std::sync::Arc;
 
 use bytes::Buf;
 use env_logger::Builder;
 use mimalloc::MiMalloc;
-use std::sync::Arc;
-
 use json::JsonValue;
 use lazy_static::lazy_static;
 use log::LevelFilter;
-use services::ServicesManager;
-use user_client::*;
+
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -35,14 +37,11 @@ lazy_static! {
         }
     };
 
-
      /// 用户管理
     pub static ref USER_PEER_MANAGER: Arc<UserClientManager> = UserClientManager::new();
 
      /// 服务管理
     pub static ref SERVICE_MANAGER:Arc<ServicesManager>=ServicesManager::new(&SERVICE_CFG,USER_PEER_MANAGER.get_handle()).unwrap();
-
-
 
 
 }
@@ -52,6 +51,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Builder::new().filter(None, LevelFilter::Debug).init();
 
     SERVICE_MANAGER.start().await?;
+
 
     let timeout_second = SERVICE_CFG["clientTimeoutSeconds"].as_i64().unwrap();
     let mut config = KcpConfig::default();
