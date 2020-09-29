@@ -8,7 +8,7 @@ use tokio::sync::mpsc::{unbounded_channel,UnboundedSender};
 use ServicesCmd::*;
 use tokio::sync::mpsc::error::SendError;
 use log::*;
-use super::super::user_client::ClientHandle;
+use super::super::users::ClientHandle;
 
 pub enum ServicesCmd{
     Disconnect(u32)

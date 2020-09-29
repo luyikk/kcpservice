@@ -4,12 +4,12 @@ mod buffer_pool;
 mod kcp;
 mod services;
 mod udp;
-mod user_client;
+mod users;
 
 use crate::kcp::{KcpConfig, KcpListener, KcpNoDelayConfig, KcpPeer};
 
 use services::ServicesManager;
-use user_client::*;
+use users::*;
 
 use std::error::Error;
 use std::sync::Arc;

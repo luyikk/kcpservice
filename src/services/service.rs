@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use xbinary::{XBRead, XBWrite};
 use bytes::{Bytes, Buf, BufMut};
 use std::sync::atomic::{AtomicI64, Ordering};
-use super::super::user_client::ClientHandle;
+use super::super::users::ClientHandle;
 use ahash::AHashSet;
 
 ///用于存放发送句柄
