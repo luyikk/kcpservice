@@ -3,7 +3,7 @@ use bytes::{Buf, BufMut, Bytes};
 use log::*;
 use std::error::Error;
 use std::net::SocketAddr;
-use std::sync::{Weak, Arc};
+use std::sync::{Arc, Weak};
 use xbinary::*;
 
 use super::super::buffer_pool::BuffPool;
@@ -43,8 +43,20 @@ impl ClientPeer {
         self.kcp_peer.upgrade().map(|x| x.addr)
     }
 
-    /// OPEN 服务器
-    pub fn open(&self, _server_id: u32) {}
+    /// 发起 OPEN 服务器
+    pub fn open(&self, _server_id: u32) {
+
+    }
+
+    /// 设置OPEN成功
+    pub fn open_service(&self,_server_id: u32){
+
+    }
+
+    /// 关闭某个服务
+    pub fn close_service(&self,_server_id: u32){
+
+    }
 
     /// 网络数据包输入,处理
     pub async fn input_buff(&self, buff: &[u8]) -> Result<(), Box<dyn Error>> {
@@ -57,8 +69,7 @@ impl ClientPeer {
                     Ok(data) => {
                         if let Some(data) = data {
                             input_data_vec.push(Bytes::from(data));
-                        }
-                        else{
+                        } else {
                             break;
                         }
                     }
@@ -126,7 +137,7 @@ impl ClientPeer {
     }
 
     /// 先发送断线包等待多少毫秒清理内存
-    async fn kick_wait_ms(&self, ms: u32) -> Result<(), Box<dyn Error>> {
+    pub async fn kick_wait_ms(&self, ms: i32) -> Result<(), Box<dyn Error>> {
         if ms == 3111 {
             self.disconnect_now();
         } else {
@@ -147,8 +158,11 @@ impl ClientPeer {
     /// 立即断线,清理内存
     pub fn disconnect_now(&self) {
         if let Some(kcp_peer) = self.kcp_peer.upgrade() {
+            //TODO 管它有没有 每个服务器都调用下 DropClientPeer 让服务器的 DropClientPeer 自己检查
+
+
             kcp_peer.disconnect();
-            info!("disconnect peer:{}", self.session_id);
+            info!("peer:{} disconnect Cleanup", self.session_id);
         }
     }
 

@@ -6,10 +6,14 @@ use std::sync::Arc;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use ClientHandleCmd::*;
+use log::*;
 
 pub enum ClientHandleCmd {
     CreatePeer(Arc<ClientPeer>),
     RemovePeer(u32),
+    OpenPeer(u32,u32),
+    ClosePeer(u32,u32),
+    KickPeer(u32,u32,i32)
 }
 
 impl Debug for ClientHandleCmd {
@@ -17,6 +21,9 @@ impl Debug for ClientHandleCmd {
         match self {
             CreatePeer(_) => f.debug_struct("CreatePeer").finish(),
             RemovePeer(_) => f.debug_struct("RemovePeer").finish(),
+            OpenPeer(_,_)=> f.debug_struct("OpenPeer").finish(),
+            ClosePeer(_,_)=>f.debug_struct("ClosePeer").finish(),
+            KickPeer(_,_,_)=>f.debug_struct("KickPeer").finish(),
         }
     }
 }
@@ -38,8 +45,22 @@ impl ClientHandle {
         self.tx.send(CreatePeer(peer))
     }
 
+    ///删除PEER
     pub fn remove_peer(&mut self, conv: u32) -> ClientHandleError {
         self.tx.send(RemovePeer(conv))
+    }
+
+    ///服务器成功OPEN后的通知
+    pub fn open_service(&mut self,service_id:u32,session_id:u32)->ClientHandleError{
+        self.tx.send(OpenPeer(service_id,session_id))
+    }
+    /// CLOSE PEER
+    pub fn close_peer(&mut self,service_id:u32,session_id:u32)->ClientHandleError{
+        self.tx.send(ClosePeer(service_id,session_id))
+    }
+    /// 强制T
+    pub fn kick_peer(&mut self,service_id:u32,session_id:u32,delay_ms:i32)->ClientHandleError{
+        self.tx.send(KickPeer(service_id,session_id,delay_ms))
     }
 }
 
@@ -86,10 +107,29 @@ impl UserClientManager {
                     //删除peer
                     RemovePeer(conv) => {
                         manager.users.borrow_mut().remove(&conv);
+                    },
+                    //OPEN客户端
+                    OpenPeer(service_id,session_id)=>{
+                       if let Some(peer)=  manager.users.borrow().get(&session_id){
+                            peer.open_service(service_id);
+                       }
+                    },
+                    //完成此PEER
+                    ClosePeer(service_id,session_id)=>{
+                        if let Some(peer)=  manager.users.borrow().get(&session_id){
+                            peer.close_service(service_id);
+                        }
+                    },
+                    KickPeer(service_id,session_id,deley_ms)=>{
+                        if let Some(peer)=  manager.get_peer(&session_id){
+                            info!("service:{} kick peer:{}",service_id,session_id);
+                            if let Err(err) = peer.kick_wait_ms(deley_ms).await {
+                                error!("service:{} kick peer:{} is error:{:?}",service_id,session_id,err)
+                            }
+                        }
                     }
                 }
             }
         });
     }
-
 }

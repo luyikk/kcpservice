@@ -20,6 +20,7 @@ xbinary = "0.1.2"
 async-trait = "0.1.40"
 async-mutex = "1.4.0"
 lazy_static = "1.4.0"
+json = "0.12.4"
 
 [profile.release]
 lto = "fat"
