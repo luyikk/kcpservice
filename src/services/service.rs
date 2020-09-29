@@ -260,13 +260,13 @@ impl Service {
                                 return Err(format!("service:{} read kick is fail",service_id).into());
                             }
                         },
-                        _ => {}
+                        _ => {  return Err(format!("service:{} incompatible cmd:{}",service_id,cmd).into()); }
                     }
                 }
             }
         }
         else{
-            //转发的数据
+            //TODO: 需要转发的数据
         }
         Ok(())
     }
