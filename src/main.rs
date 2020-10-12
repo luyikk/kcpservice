@@ -24,7 +24,7 @@ use json::JsonValue;
 use lazy_static::lazy_static;
 use flexi_logger;
 use flexi_logger::{LogTarget, Criterion, Age, Naming, Cleanup};
-use std::env::args;
+use std::env::{args};
 
 
 #[global_allocator]
@@ -57,10 +57,7 @@ lazy_static! {
 async fn main() -> Result<(), Box<dyn Error>> {
 
     init_log_system();
-
-
     SERVICE_MANAGER.start().await?;
-
     USER_PEER_MANAGER.set_service_handler(SERVICE_MANAGER.get_handler());
 
     let timeout_second = SERVICE_CFG["clientTimeoutSeconds"].as_i64().unwrap();
@@ -80,13 +77,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let mut token = kcp_peer.token.borrow_mut();
             match token.get() {
                 None => {
-                    if data.len() >= 5 && data.get_u32_le() == 1 && data[4] == 0 {
+                    if data.len() >= 5 && data.get_u32_le() == 1 && data[0] == 0 {
                         data.advance(1);
                         let mut handle = USER_PEER_MANAGER.get_handle();
+                        let service_handler=USER_PEER_MANAGER.get_service_handler();
                         let peer =
-                            Arc::new(ClientPeer::new(kcp_peer.conv, Arc::downgrade(&kcp_peer)));
+                            Arc::new(ClientPeer::new(kcp_peer.conv, Arc::downgrade(&kcp_peer),service_handler));
                         handle.create_peer(peer.clone())?;
                         token.set(Some(peer.clone()));
+                        peer.open(0)?;
                         peer
                     } else {
                         return Ok(());
@@ -106,13 +105,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 /// 安装日及系统
 fn init_log_system(){
-    let mut show_std=false;
+    let mut show_std=true;
 
     for arg in args() {
-        if arg.trim() == "--std"{
+        if arg.trim().to_uppercase() == "--STDLOG"{
             show_std=true;
             println!("open stderr log out");
         }
+    }
+    for (name,arg) in std::env::vars(){
+       if name.trim()=="STDLOG" && arg.trim() =="1"{
+           show_std=true;
+           println!("open stderr log out");
+       }
     }
 
     let mut log_set=LogTarget::File;

@@ -8,23 +8,39 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use ClientHandleCmd::*;
 use super::super::services::ServiceHandler;
 use log::*;
+use xbinary::XBRead;
 
 pub enum ClientHandleCmd {
     CreatePeer(Arc<ClientPeer>),
     RemovePeer(u32),
     OpenPeer(u32,u32),
     ClosePeer(u32,u32),
-    KickPeer(u32,u32,i32)
+    KickPeer(u32,u32,i32),
+    SendBuffer(u32,u32,XBRead)
 }
 
 impl Debug for ClientHandleCmd {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            CreatePeer(_) => f.debug_struct("CreatePeer").finish(),
-            RemovePeer(_) => f.debug_struct("RemovePeer").finish(),
-            OpenPeer(_,_)=> f.debug_struct("OpenPeer").finish(),
-            ClosePeer(_,_)=>f.debug_struct("ClosePeer").finish(),
-            KickPeer(_,_,_)=>f.debug_struct("KickPeer").finish(),
+            CreatePeer(peer) => f.debug_struct("CreatePeer")
+                .field("session_id",&peer.session_id)
+                .finish(),
+            RemovePeer(session_id) => f.debug_struct("RemovePeer")
+                .field("session_id",session_id).finish(),
+            OpenPeer(service_id,session_id)=> f.debug_struct("OpenPeer")
+                .field("service_id",service_id)
+                .field("session_id",session_id).finish(),
+            ClosePeer(service_id,session_id)=>f.debug_struct("ClosePeer")
+                .field("service_id",service_id)
+                .field("session_id",session_id).finish(),
+            KickPeer(service_id,session_id,delay_ms)=>f.debug_struct("KickPeer")
+                .field("service_id",service_id)
+                .field("session_id",session_id)
+                .field("delay_ms",delay_ms).finish(),
+            SendBuffer(service_id,session_id,buff)=>f.debug_struct("ClientSendBuffer")
+                .field("service_id",service_id)
+                .field("session_id",session_id)
+                .field("buff",&buff.to_vec()).finish()
         }
     }
 }
@@ -62,6 +78,10 @@ impl ClientHandle {
     /// 强制T
     pub fn kick_peer(&mut self,service_id:u32,session_id:u32,delay_ms:i32)->ClientHandleError{
         self.tx.send(KickPeer(service_id,session_id,delay_ms))
+    }
+    /// 发送数据包
+    pub fn send_buffer(&mut self,service_id:u32,session_id:u32,buff:XBRead)->ClientHandleError{
+        self.tx.send(SendBuffer(service_id,session_id,buff))
     }
 }
 
@@ -127,8 +147,10 @@ impl UserClientManager {
                     },
                     //OPEN客户端
                     OpenPeer(service_id,session_id)=>{
-                       if let Some(peer)=  manager.users.borrow().get(&session_id){
-                            peer.open_service(service_id);
+                       if let Some(peer)= manager.get_peer(&session_id){
+                           if let Err(err) =peer.open_service(service_id).await{
+                               error!("service:{} open peer:{} is error:{:?}",service_id,session_id,err)
+                           }
                        }
                     },
                     //完成此PEER
@@ -143,6 +165,14 @@ impl UserClientManager {
                             info!("service:{} kick peer:{}",service_id,session_id);
                             if let Err(err) = peer.kick_wait_ms(delay_ms).await {
                                 error!("service:{} kick peer:{} is error:{:?}",service_id,session_id,err)
+                            }
+                        }
+                    },
+                    //转发给客户端数据
+                    SendBuffer(service_id,session_id,buffer)=>{
+                        if let Some(peer)=  manager.get_peer(&session_id){
+                            if let Err(err) =peer.send(service_id,&buffer).await{
+                                error!("service:{}  peer:{} send buffer error:{:?}",service_id,session_id,err)
                             }
                         }
                     }

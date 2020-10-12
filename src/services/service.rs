@@ -7,7 +7,7 @@ use std::sync::{Arc};
 use async_mutex::Mutex;
 use std::io;
 use tokio::sync::mpsc::UnboundedSender;
-use std::cell::RefCell;
+use std::cell::{RefCell, UnsafeCell};
 use xbinary::{XBRead, XBWrite};
 use bytes::{Bytes, Buf, BufMut};
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -57,12 +57,12 @@ pub struct ServiceInner{
     pub gateway_id:u32,
     pub manager_handle: ServiceManagerHandler,
     pub connect:Arc<Mutex<Option<Connect>>>,
-    pub msg_ids:Arc<Mutex<Vec<i32>>>,
+    pub msg_ids:UnsafeCell<Vec<i32>>,
     pub sender:Arc<Sender>,
     pub ping_delay_tick:AtomicI64,
     pub client_handle:ClientHandle,
     pub wait_open_table:Mutex<AHashSet<u32>>,
-    pub open_table:RefCell<AHashSet<u32>>
+    pub open_table:UnsafeCell<AHashSet<u32>>
 }
 
 unsafe impl Send for ServiceInner{}
@@ -89,11 +89,11 @@ impl Service {
                 gateway_id,
                 manager_handle:handler,
                 connect:Arc::new(Mutex::new(None)),
-                msg_ids:Arc::new(Mutex::new(Vec::new())),
+                msg_ids:UnsafeCell::new(Vec::new()),
                 sender:Arc::new(Sender::new()),
                 ping_delay_tick:AtomicI64::new(0),
                 wait_open_table:Mutex::new(AHashSet::new()),
-                open_table:RefCell::new(AHashSet::new()),
+                open_table:UnsafeCell::new(AHashSet::new()),
                 client_handle
             })
         }
@@ -176,8 +176,8 @@ impl Service {
     /// 读取数据
     async fn read_data(data:Vec<u8>, service_id:u32 ,inner:&Arc<ServiceInner>)->Result<(),Box<dyn Error>>{
         let mut reader =XBRead::new(Bytes::from(data));
-
-        if reader.get_u32_le() ==0xFFFFFFFFu32 {
+        let session_id=reader.get_u32_le();
+        if session_id ==0xFFFFFFFFu32 {
             //到网关的数据
             let cmd = reader.read_string_bit7_len();
             match cmd {
@@ -188,9 +188,10 @@ impl Service {
                     match &cmd[..] {
                         "typeids" => {
                             let len = reader.get_u32_le();
-                            let mut msg_ids = inner.msg_ids.lock_arc().await;
-                            for _ in 0..len {
-                                msg_ids.push(reader.get_i32_le());
+                            unsafe {
+                                for _ in 0..len {
+                                    (*inner.msg_ids.get()).push(reader.get_i32_le());
+                                }
                             }
                             info!("Service:{} push typeids count:{}", service_id, len);
                         },
@@ -217,7 +218,13 @@ impl Service {
                                     }
                                 }
 
-                                Self::open_session_id(service_id, inner, session_id)?;
+                                unsafe {
+                                    if (*inner.open_table.get()).insert(session_id) {
+                                        inner.client_handle.clone().open_service(service_id, session_id)?;
+                                    } else {
+                                        warn!("service: {} insert SessionId:{} open is fail", service_id, session_id);
+                                    }
+                                }
                             }
                             else{
                                 return Err(format!("service:{} read open session_id fail",service_id).into());
@@ -230,10 +237,13 @@ impl Service {
                                 let session_id = session_id.1;
                                 // 如果TRUE 说明还没OPEN 就被CLOSE了
                                 if !inner.wait_open_table.lock().await.remove(&session_id){
-                                    if !inner.open_table.borrow_mut().remove(&session_id){
-                                        //如果OPEN表里面找不到那么打警告返回
-                                        warn!("service:{} not found SessionId:{} close is fail",service_id,session_id);
-                                        return Ok(());
+
+                                    unsafe {
+                                        if !(*inner.open_table.get()).remove(&session_id) {
+                                            //如果OPEN表里面找不到那么打警告返回
+                                            warn!("service:{} not found SessionId:{} close is fail", service_id, session_id);
+                                            return Ok(());
+                                        }
                                     }
                                 }
                                 inner.client_handle.clone().close_peer(service_id,session_id)?;
@@ -266,19 +276,78 @@ impl Service {
             }
         }
         else{
-            //TODO: 需要转发的数据
+            inner.client_handle.clone().send_buffer(service_id,session_id,reader)?;
         }
         Ok(())
     }
 
-    /// 给客户端发送OPEN,通知添加到OPEN表
-    fn open_session_id(service_id: u32, inner: &Arc<ServiceInner>, session_id: u32)->Result<(),Box<dyn Error>> {
-        if inner.open_table.borrow_mut().insert(session_id) {
-            inner.client_handle.clone().open_service(service_id,session_id)?;
-        } else {
-            warn!("service: {} insert SessionId:{} open is fail", service_id, session_id);
+    /// 发起OPEN请求
+    pub async fn open(&self,session_id:u32,ipaddress:String)->Result<(),Box<dyn Error>>{
+        let mut wait_open_dict= self.inner.wait_open_table.lock().await;
+        if wait_open_dict.insert(session_id) {
+            if let Err(er)=Self::send_open(session_id,ipaddress,&self.inner.sender,){
+                wait_open_dict.remove(&session_id);
+                return Err(er)
+            }
+            return Ok(())
         }
 
+        Err( format!("repeat open:{}",session_id).into())
+    }
+
+
+
+
+    /// 检测此session_id 和 typeid 是否是此服务器
+    pub  fn check_typeid(&self,session_id:u32,typeid:i32)->bool{
+        unsafe {
+            if (*self.inner.open_table.get()).contains(&session_id) {
+                if (*self.inner.msg_ids.get()).contains(&typeid) {
+                    return true
+                }
+            }
+            false
+        }
+
+    }
+
+    /// 发送BUFF 智能路由用
+    pub fn send_buffer_by_typeid(&self,session_id:u32,serial:i32,typeid:i32,buffer:&[u8])->Result<(),Box<dyn Error>>{
+        let mut writer=XBWrite::new();
+        writer.put_u32_le(0);
+        writer.put_u32_le(session_id);
+        writer.bit7_write_i32(serial);
+        writer.bit7_write_i32(typeid);
+        writer.write(buffer);
+        writer.set_position(0);
+        writer.put_u32_le(writer.len()  as u32 - 4);
+        self.inner.sender.send(writer)?;
+        Ok(())
+    }
+
+    /// 发送BUFF
+    pub fn send_buffer(&self,session_id:u32, buffer:&[u8])->Result<(),Box<dyn Error>>{
+        let mut writer=XBWrite::new();
+        writer.put_u32_le(0);
+        writer.put_u32_le(session_id);
+        writer.write(buffer);
+        writer.set_position(0);
+        writer.put_u32_le(writer.len()  as u32 - 4);
+        self.inner.sender.send(writer)?;
+        Ok(())
+    }
+
+    /// 发送OPEN
+    fn send_open(session_id:u32,ipaddress:String,sender:&Arc<Sender>)->Result<(),Box<dyn Error>>{
+        let mut writer=XBWrite::new();
+        writer.put_u32_le(0);
+        writer.put_u32_le(0xFFFFFFFFu32);
+        writer.write_string_bit7_len("accept");
+        writer.bit7_write_u32(session_id);
+        writer.write_string_bit7_len(&ipaddress);
+        writer.set_position(0);
+        writer.put_u32_le(writer.len()  as u32 - 4);
+        sender.send(writer)?;
         Ok(())
     }
 
@@ -295,6 +364,7 @@ impl Service {
         sender.send(writer)?;
         Ok(())
     }
+
 
     /// 获取时间戳
     #[inline]
