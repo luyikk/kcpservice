@@ -13,6 +13,7 @@ use bytes::{Bytes, Buf, BufMut};
 use std::sync::atomic::{AtomicI64, Ordering};
 use super::super::users::ClientHandle;
 use ahash::AHashSet;
+use super::connect::ConnectCmd;
 
 ///用于存放发送句柄
 pub struct Sender(RefCell<Option<UnboundedSender<XBWrite>>>);
@@ -131,10 +132,28 @@ impl Service {
 
                        // 开始读取数据
                         while let Some(data)=reader.recv().await{
-                           if let Err(er)=Self::read_data(data,service_id,&inner).await{
-                               error!("read data error:{:?}",er);
-                               break;
-                           }
+                            match data {
+                                ConnectCmd::Buff(data)=>{
+                                    if let Err(er)=Self::read_data(data,service_id,&inner).await{
+                                        error!("read data error:{:?}",er);
+                                        break;
+                                    }
+                                },
+                                ConnectCmd::DropClient(session_id)=>{
+                                    inner.wait_open_table.lock().await.remove(&session_id);
+                                    unsafe {
+                                        if (*inner.open_table.get()).remove(&session_id) {
+                                            info!("disconnect peer:{} to service:{}",session_id, service_id);
+                                            if let Some(sender)= inner.sender.get(){
+                                                if let Err(er)=Self::send_disconnect(session_id,sender){
+                                                    error!("send disconnect to service:{} error:{:?}",service_id, er);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                         }
                         break;
                     },
@@ -237,7 +256,6 @@ impl Service {
                                 let session_id = session_id.1;
                                 // 如果TRUE 说明还没OPEN 就被CLOSE了
                                 if !inner.wait_open_table.lock().await.remove(&session_id){
-
                                     unsafe {
                                         if !(*inner.open_table.get()).remove(&session_id) {
                                             //如果OPEN表里面找不到那么打警告返回
@@ -296,10 +314,27 @@ impl Service {
     }
 
 
+    /// 客户端断线调用
+    pub async fn client_drop(&self,session_id:u32)->Result<(),Box<dyn Error>>{
+        let connect= self.inner.connect.lock_arc().await;
+        if let Some(ref connect)=*connect{
+            connect.read_tx.clone().send(ConnectCmd::DropClient(session_id)).await?;
+        }
+        Ok(())
+    }
 
+    /// 此peer是否在此服务器OPEN
+    pub fn have_session_id(&self,session_id:u32)->bool{
+        unsafe {
+            if (*self.inner.open_table.get()).contains(&session_id) {
+                    return true
+            }
+            false
+        }
+    }
 
     /// 检测此session_id 和 typeid 是否是此服务器
-    pub  fn check_typeid(&self,session_id:u32,typeid:i32)->bool{
+    pub fn check_typeid(&self,session_id:u32,typeid:i32)->bool{
         unsafe {
             if (*self.inner.open_table.get()).contains(&session_id) {
                 if (*self.inner.msg_ids.get()).contains(&typeid) {
@@ -365,6 +400,18 @@ impl Service {
         Ok(())
     }
 
+    /// 发送断线
+    fn send_disconnect(session_id:u32,sender:UnboundedSender<XBWrite>)->Result<(),Box<dyn Error>> {
+        let mut writer = XBWrite::new();
+        writer.put_u32_le(0);
+        writer.put_u32_le(0xFFFFFFFFu32);
+        writer.write_string_bit7_len("disconnect");
+        writer.bit7_write_u32(session_id);
+        writer.set_position(0);
+        writer.put_u32_le(writer.len()  as u32 - 4);
+        sender.send(writer)?;
+        Ok(())
+    }
 
     /// 获取时间戳
     #[inline]

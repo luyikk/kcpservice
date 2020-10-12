@@ -55,8 +55,13 @@ impl ServiceHandler{
         self.tx.send(OpenService(session_id,service_id,ipaddress))
     }
 
+    /// 发送数据包给服务器
     pub fn send_buffer(&mut self,session_id:u32, service_id:u32,buff:XBRead)->ServiceHandlerError{
         self.tx.send(SendBuff(session_id,service_id,buff))
+    }
+    /// 断线通知
+    pub fn disconnect_events(&mut self,session_id:u32)->ServiceHandlerError{
+        self.tx.send(DropClientPeer(session_id))
     }
 
 }
@@ -132,7 +137,7 @@ impl ServicesManager {
                     Disconnect(service_id)=>{
                        if let Some(service)= inner_service_manager.get_service(&service_id) {
                            if let Err(er)= service.disconnect().await{
-                               error!{"disconnect service {} error:{}",service_id,er}
+                               error!{"disconnect service {} error:{}->{:?}",service_id,er,er}
                            }
                        }
                        else {
@@ -142,7 +147,7 @@ impl ServicesManager {
                     OpenService(session_id, service_id,ipaddress)=>{
                         if let Some(service)= inner_service_manager.get_service(&service_id) {
                             if let Err(er)=service.open(session_id,ipaddress).await{
-                                error!{"open service {} session_id:{} error:{}",service_id,session_id,er}
+                                error!{"open service {} session_id:{} error:{}->{:?}",service_id,session_id,er,er}
                             }
                         }
                         else {
@@ -161,7 +166,7 @@ impl ServicesManager {
                                         buffer.advance(size);
                                         if let Some(service)=  inner_service_manager.get_service_by_typeid(session_id,typeid).await{
                                             if let Err(er)=service.send_buffer_by_typeid(session_id,serial,typeid,&buffer){
-                                                error!{"sendbuff 0xEEEEEEEE error service {} session_id:{} typeid:{} error:{}",service_id,session_id,typeid,er}
+                                                error!{"sendbuff 0xEEEEEEEE error service {} session_id:{} typeid:{} error:{}->{:?}",service_id,session_id,typeid,er,er}
                                             }
                                         }
                                         else{
@@ -185,7 +190,17 @@ impl ServicesManager {
                     },
                     //客户端断线
                     DropClientPeer(session_id)=>{
-
+                        let mut send_drop_services=vec![];
+                        for service in inner_service_manager.services.borrow().values() {
+                            if service.have_session_id(session_id){
+                                send_drop_services.push(service.clone());
+                            }
+                        }
+                        for service in send_drop_services {
+                            if let Err(er)=service.client_drop(session_id).await{
+                                error!{"DropClientPeer error service {} session_id:{} error:{}->{:?}",service.service_id,session_id,er,er}
+                            }
+                        }
                     }
                 }
 

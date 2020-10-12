@@ -70,10 +70,15 @@ impl ClientPeer {
     }
 
     /// 服务器通知 关闭某个服务
-    pub fn close_service(&self,service_id: u32){
+    pub async fn close_service(&self,service_id: u32)-> Result<(), Box<dyn Error>>{
+        debug!("service:{} Close peer:{} OK",service_id,self.session_id);
         if service_id ==0 {
-
+            self.kick().await?;
         }
+        else{
+            self.send_close(service_id).await?;
+        }
+        Ok(())
     }
 
     /// 网络数据包输入,处理
@@ -142,11 +147,11 @@ impl ClientPeer {
     /// 先发送断线包等待多少毫秒清理内存
     pub async fn kick_wait_ms(&self, ms: i32) -> Result<(), Box<dyn Error>> {
         if ms == 3111 {
-            self.disconnect_now();
+            self.disconnect_now()?;
         } else {
             self.send_close(0).await?;
             delay_for(Duration::from_millis(ms as u64)).await;
-            self.disconnect_now();
+            self.disconnect_now()?;
         }
         Ok(())
     }
@@ -154,22 +159,23 @@ impl ClientPeer {
     /// 发送 CLOSE 0 后立即断线清理内存
     async fn kick(&self) -> Result<(), Box<dyn Error>> {
         self.send_close(0).await?;
-        self.disconnect_now();
+        self.disconnect_now()?;
         Ok(())
     }
 
     /// 立即断线,清理内存
-    pub fn disconnect_now(&self) {
+    pub fn disconnect_now(&self)-> Result<(), Box<dyn Error>> {
         // 先关闭OPEN 0 标志位
         self.is_open_zero.store(false,Ordering::Release);
 
         if let Some(kcp_peer) = self.kcp_peer.upgrade() {
-            //TODO 管它有没有 每个服务器都调用下 DropClientPeer 让服务器的 DropClientPeer 自己检查
-
+            //管它有没有 每个服务器都调用下 DropClientPeer 让服务器的 DropClientPeer 自己检查
+            self.service_handler.clone().disconnect_events(self.session_id)?;
 
             kcp_peer.disconnect();
             info!("peer:{} disconnect Cleanup", self.session_id);
         }
+        Ok(())
     }
 
     /// 发送数据

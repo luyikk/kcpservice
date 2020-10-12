@@ -143,20 +143,26 @@ impl UserClientManager {
                     },
                     //删除peer
                     RemovePeer(conv) => {
-                        manager.users.borrow_mut().remove(&conv);
+                        if let Some(peer)= manager.users.borrow_mut().remove(&conv){
+                            if let Err(err) =peer.disconnect_now(){
+                                error!("RemovePeer:{} is error:{}->{:?}",conv,err,err)
+                            }
+                        }
                     },
                     //OPEN客户端
                     OpenPeer(service_id,session_id)=>{
                        if let Some(peer)= manager.get_peer(&session_id){
                            if let Err(err) =peer.open_service(service_id).await{
-                               error!("service:{} open peer:{} is error:{:?}",service_id,session_id,err)
+                               error!("service:{} open peer:{} is error:{}->{:?}",service_id,session_id,err,err)
                            }
                        }
                     },
                     //完成此PEER
                     ClosePeer(service_id,session_id)=>{
-                        if let Some(peer)=  manager.users.borrow().get(&session_id){
-                            peer.close_service(service_id);
+                        if let Some(peer)=  manager.get_peer(&session_id){
+                            if let Err(err) =peer.close_service(service_id).await{
+                                error!("service:{} close peer:{} is error:{}->{:?}",service_id,session_id,err,err)
+                            }
                         }
                     },
                     //强制T此玩家
@@ -164,7 +170,7 @@ impl UserClientManager {
                         if let Some(peer)=  manager.get_peer(&session_id){
                             info!("service:{} kick peer:{}",service_id,session_id);
                             if let Err(err) = peer.kick_wait_ms(delay_ms).await {
-                                error!("service:{} kick peer:{} is error:{:?}",service_id,session_id,err)
+                                error!("service:{} kick peer:{} is error:{}->{:?}",service_id,session_id,err,err)
                             }
                         }
                     },
@@ -172,7 +178,7 @@ impl UserClientManager {
                     SendBuffer(service_id,session_id,buffer)=>{
                         if let Some(peer)=  manager.get_peer(&session_id){
                             if let Err(err) =peer.send(service_id,&buffer).await{
-                                error!("service:{}  peer:{} send buffer error:{:?}",service_id,session_id,err)
+                                error!("service:{}  peer:{} send buffer error:{}->{:?}",service_id,session_id,err,err)
                             }
                         }
                     }
