@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use ClientHandleCmd::*;
+use super::super::services::ServiceHandler;
 use log::*;
 
 pub enum ClientHandleCmd {
@@ -68,6 +69,7 @@ impl ClientHandle {
 pub struct UserClientManager {
     users: RefCell<HashMap<u32, Arc<ClientPeer>>>,
     handle: ClientHandle,
+    service_handle:RefCell<Option<ServiceHandler>>
 }
 
 unsafe impl Send for UserClientManager {}
@@ -80,6 +82,7 @@ impl UserClientManager {
         let res = Arc::new(UserClientManager {
             users: RefCell::new(HashMap::new()),
             handle: ClientHandle::new(tx),
+            service_handle:RefCell::new(None)
         });
         Self::recv(res.clone(), rx);
         res
@@ -93,6 +96,20 @@ impl UserClientManager {
     /// 获取客户端管理器的操作句柄
     pub fn get_handle(&self) -> ClientHandle {
         self.handle.clone()
+    }
+
+    /// 设置服务器句柄
+    pub fn set_service_handler(&self,handler:ServiceHandler){
+        self.service_handle.borrow_mut().replace(handler);
+    }
+
+    /// 获取服务器句柄,如果没有直接 panic
+    pub fn get_service_handler(&self)->ServiceHandler{
+        if let Some(ref handler)=*self.service_handle.borrow(){
+           return  handler.clone()
+        }
+
+        panic!("service handle is null");
     }
 
     ///CSP 读取
@@ -120,10 +137,11 @@ impl UserClientManager {
                             peer.close_service(service_id);
                         }
                     },
-                    KickPeer(service_id,session_id,deley_ms)=>{
+                    //强制T此玩家
+                    KickPeer(service_id, session_id, delay_ms)=>{
                         if let Some(peer)=  manager.get_peer(&session_id){
                             info!("service:{} kick peer:{}",service_id,session_id);
-                            if let Err(err) = peer.kick_wait_ms(deley_ms).await {
+                            if let Err(err) = peer.kick_wait_ms(delay_ms).await {
                                 error!("service:{} kick peer:{} is error:{:?}",service_id,session_id,err)
                             }
                         }

@@ -10,9 +10,25 @@ use tokio::sync::mpsc::error::SendError;
 use log::*;
 use super::super::users::ClientHandle;
 
+/// 服务器操作命令
 pub enum ServicesCmd{
     Disconnect(u32)
 }
+
+/// 服务器操作句柄
+#[derive(Clone)]
+pub struct ServiceHandler{
+    tx:UnboundedSender<ServicesCmd>
+}
+
+pub type ServiceHandlerError = Result<(), SendError<ServicesCmd>>;
+
+impl ServiceHandler{
+
+
+}
+
+
 
 /// 游戏服务器管理
 pub struct ServicesManager {
@@ -22,6 +38,7 @@ pub struct ServicesManager {
     handler:UnboundedSender<ServicesCmd>,
     client_handler:ClientHandle
 }
+
 
 #[derive(Clone)]
 pub struct ServiceManagerHandler(pub UnboundedSender<ServicesCmd>);
@@ -105,9 +122,14 @@ impl ServicesManager {
         Ok(())
     }
 
-    /// 获取句柄
-    pub fn get_handle(&self)->ServiceManagerHandler{
+    /// 获取服务器管理句柄
+    pub fn get_manager_handle(&self) ->ServiceManagerHandler{
         ServiceManagerHandler(self.handler.clone())
+    }
+
+    /// 获取服务器句柄
+    pub fn get_handler(&self)->ServiceHandler{
+        ServiceHandler{tx:self.handler.clone()}
     }
 
     /// 获取客户端句柄

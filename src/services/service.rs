@@ -1,7 +1,7 @@
 use log::*;
 use std::error::Error;
 use super::Connect;
-use super::ServiceManagerHandler;
+use super::manager::ServiceManagerHandler;
 use tokio::time::{delay_for, Duration};
 use std::sync::{Arc};
 use async_mutex::Mutex;

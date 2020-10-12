@@ -1,25 +1,30 @@
 #![feature(async_closure)]
 #![allow(dead_code)]
+
 mod buffer_pool;
 mod kcp;
 mod services;
 mod udp;
 mod users;
+mod stdout_log;
+
 
 use crate::kcp::{KcpConfig, KcpListener, KcpNoDelayConfig, KcpPeer};
 
 use services::ServicesManager;
 use users::*;
+use stdout_log::StdErrLog;
 
 use std::error::Error;
 use std::sync::Arc;
 
 use bytes::Buf;
-use env_logger::Builder;
 use mimalloc::MiMalloc;
 use json::JsonValue;
 use lazy_static::lazy_static;
-use log::LevelFilter;
+use flexi_logger;
+use flexi_logger::{LogTarget, Criterion, Age, Naming, Cleanup};
+use std::env::args;
 
 
 #[global_allocator]
@@ -46,12 +51,17 @@ lazy_static! {
 
 }
 
+
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    Builder::new().filter(None, LevelFilter::Debug).init();
+
+    init_log_system();
+
 
     SERVICE_MANAGER.start().await?;
 
+    USER_PEER_MANAGER.set_service_handler(SERVICE_MANAGER.get_handler());
 
     let timeout_second = SERVICE_CFG["clientTimeoutSeconds"].as_i64().unwrap();
     let mut config = KcpConfig::default();
@@ -59,7 +69,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let kcp =
         KcpListener::<Arc<ClientPeer>, _>::new("0.0.0.0:5555", config, timeout_second).await?;
 
-    kcp.set_kcpdrop_event_input(move |conv| {
+    kcp.set_kcpdrop_event_input(|conv| {
         let mut handle = USER_PEER_MANAGER.get_handle();
         handle.remove_peer(conv).unwrap();
     })
@@ -93,3 +103,32 @@ async fn main() -> Result<(), Box<dyn Error>> {
     kcp.start().await?;
     Ok(())
 }
+
+/// 安装日及系统
+fn init_log_system(){
+    let mut show_std=false;
+
+    for arg in args() {
+        if arg.trim() == "--std"{
+            show_std=true;
+            println!("open stderr log out");
+        }
+    }
+
+    let mut log_set=LogTarget::File;
+    if show_std{
+        log_set=LogTarget::FileAndWriter(Box::new(StdErrLog::new()));
+    }
+
+    flexi_logger::Logger::with_str("debug")
+        .log_target(log_set)
+        .suffix("log")
+        .directory("logs")
+        .rotate(Criterion::AgeOrSize(Age::Day,1024*1024*5),Naming::Numbers,Cleanup::KeepLogFiles(30))
+        .print_message()
+        .format(flexi_logger::opt_format)
+        .set_palette("196;208;6;7;8".into())
+        .start()
+        .unwrap();
+}
+
