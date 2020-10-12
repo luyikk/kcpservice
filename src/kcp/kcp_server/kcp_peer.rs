@@ -83,7 +83,7 @@ pub struct KcpPeer<T: Send> {
 
 impl<T: Send> Drop for KcpPeer<T> {
     fn drop(&mut self) {
-        info!("kcp_peer:{} is Drop", self.conv);
+        debug!("kcp_peer:{} is Drop", self.conv);
     }
 }
 

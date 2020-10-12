@@ -28,7 +28,7 @@ unsafe impl Sync for ClientPeer {}
 
 impl Drop for ClientPeer {
     fn drop(&mut self) {
-        info!("client_peer:{} is drop", self.session_id);
+        debug!("client_peer:{} is drop", self.session_id);
     }
 }
 
@@ -53,7 +53,7 @@ impl ClientPeer {
     pub fn open(&self, service_id: u32)-> Result<(), Box<dyn Error>> {
         if let Some(addr)=self.get_addr() {
             self.service_handler.clone().open(self.session_id, service_id, addr.to_string())?;
-            debug!("start open service:{} peer:{}",service_id,self.session_id);
+            info!("start open service:{} peer:{}",service_id,self.session_id);
         }
         else{
             error!("not found addr by {}",self.session_id);
@@ -63,7 +63,7 @@ impl ClientPeer {
 
     /// 服务器通知 设置OPEN成功
     pub async fn open_service(&self,service_id: u32)-> Result<(), Box<dyn Error>>{
-        debug!("service:{} open peer:{} OK",service_id,self.session_id);
+        info!("service:{} open peer:{} OK",service_id,self.session_id);
         self.is_open_zero.store(true,Ordering::Release);
         self.send_open(service_id).await?;
         Ok(())
@@ -71,7 +71,7 @@ impl ClientPeer {
 
     /// 服务器通知 关闭某个服务
     pub async fn close_service(&self,service_id: u32)-> Result<(), Box<dyn Error>>{
-        debug!("service:{} Close peer:{} OK",service_id,self.session_id);
+        info!("service:{} Close peer:{} OK",service_id,self.session_id);
         if service_id ==0 {
             self.kick().await?;
         }
