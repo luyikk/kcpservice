@@ -224,7 +224,7 @@ impl Service {
             let now = Self::timestamp();
 
             //30秒超时 单位tick 秒后 7个0
-            if last_ping_time > 0 && now - last_ping_time > 3 * 1000 * 10000 {
+            if last_ping_time > 0 && now - last_ping_time > 30 * 1000 * 10000 {
                 warn!("service:{} ping time out,shutdown it,now:{},last_ping_time:{},ping_delay_tick:{}",
                       self.service_id,
                       now,
