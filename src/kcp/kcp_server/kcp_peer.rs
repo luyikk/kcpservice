@@ -65,6 +65,8 @@ impl Kcp {
     }
 }
 
+pub type DisconnectFnStore = RefCell<Option<Box<dyn FnOnce(u32)>>>;
+
 /// KCP Peer
 /// UDP的包进入 KCP PEER 经过KCP 处理后 输出
 /// 输入的包 进入KCP PEER处理,然后 输出到UDP PEER SEND TO
@@ -77,7 +79,7 @@ pub struct KcpPeer<T: Send> {
     pub token: RefCell<TokenStore<T>>,
     pub last_rev_time: AtomicI64,
     pub next_update_time: AtomicU32,
-    pub disconnect_event: RefCell<Option<Box<dyn FnOnce(u32)>>>,
+    pub disconnect_event: DisconnectFnStore,
     pub(crate) main_tx: Sender<RecvType>,
 }
 
@@ -119,9 +121,9 @@ impl<T: Send> KcpPeer<T> {
 
     pub(crate) async fn update(&self, current: u32) -> KcpResult<()> {
         let next = self.kcp.update(current).await?;
-        Ok(self
-            .next_update_time
-            .store(next + current, Ordering::Release))
+        self.next_update_time
+            .store(next + current, Ordering::Release);
+        Ok(())
     }
 
     pub(crate) async fn flush(&self) -> KcpResult<()> {

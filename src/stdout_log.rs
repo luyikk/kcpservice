@@ -1,13 +1,12 @@
-use flexi_logger::writers::{LogWriter};
-use flexi_logger::{DeferredNow, style};
+use flexi_logger::writers::LogWriter;
+use flexi_logger::{style, DeferredNow};
 use log::{LevelFilter, Record};
 use std::io::Write;
-
 
 pub struct StdErrLog;
 
 impl StdErrLog {
-    pub fn new()-> StdErrLog {
+    pub fn new() -> StdErrLog {
         StdErrLog
     }
 }
@@ -34,4 +33,3 @@ impl LogWriter for StdErrLog {
         log::LevelFilter::Error
     }
 }
-

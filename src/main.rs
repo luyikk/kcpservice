@@ -4,28 +4,25 @@
 mod buffer_pool;
 mod kcp;
 mod services;
+mod stdout_log;
 mod udp;
 mod users;
-mod stdout_log;
-
 
 use crate::kcp::{KcpConfig, KcpListener, KcpNoDelayConfig, KcpPeer};
 
 use services::ServicesManager;
-use users::*;
 use stdout_log::StdErrLog;
+use users::*;
 
 use std::error::Error;
 use std::sync::Arc;
 
 use bytes::Buf;
-use mimalloc::MiMalloc;
+use flexi_logger::{Age, Cleanup, Criterion, LogTarget, Naming};
 use json::JsonValue;
 use lazy_static::lazy_static;
-use flexi_logger;
-use flexi_logger::{LogTarget, Criterion, Age, Naming, Cleanup};
-use std::env::{args};
-
+use mimalloc::MiMalloc;
+use std::env::args;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -51,11 +48,8 @@ lazy_static! {
 
 }
 
-
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-
     init_log_system();
     SERVICE_MANAGER.start().await?;
     USER_PEER_MANAGER.set_service_handler(SERVICE_MANAGER.get_handler());
@@ -80,9 +74,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     if data.len() >= 5 && data.get_u32_le() == 1 && data[0] == 0 {
                         data.advance(1);
                         let mut handle = USER_PEER_MANAGER.get_handle();
-                        let service_handler=USER_PEER_MANAGER.get_service_handler();
-                        let peer =
-                            Arc::new(ClientPeer::new(kcp_peer.conv, Arc::downgrade(&kcp_peer),service_handler));
+                        let service_handler = USER_PEER_MANAGER.get_service_handler();
+                        let peer = Arc::new(ClientPeer::new(
+                            kcp_peer.conv,
+                            Arc::downgrade(&kcp_peer),
+                            service_handler,
+                        ));
                         handle.create_peer(peer.clone())?;
                         token.set(Some(peer.clone()));
                         peer.open(0)?;
@@ -104,36 +101,39 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 /// 安装日及系统
-fn init_log_system(){
-    let mut show_std=true;
+fn init_log_system() {
+    let mut show_std = true;
 
     for arg in args() {
-        if arg.trim().to_uppercase() == "--STDLOG"{
-            show_std=true;
+        if arg.trim().to_uppercase() == "--STDLOG" {
+            show_std = true;
             println!("open stderr log out");
         }
     }
-    for (name,arg) in std::env::vars(){
-       if name.trim()=="STDLOG" && arg.trim() =="1"{
-           show_std=true;
-           println!("open stderr log out");
-       }
+    for (name, arg) in std::env::vars() {
+        if name.trim() == "STDLOG" && arg.trim() == "1" {
+            show_std = true;
+            println!("open stderr log out");
+        }
     }
 
-    let mut log_set=LogTarget::File;
-    if show_std{
-        log_set=LogTarget::FileAndWriter(Box::new(StdErrLog::new()));
+    let mut log_set = LogTarget::File;
+    if show_std {
+        log_set = LogTarget::FileAndWriter(Box::new(StdErrLog::new()));
     }
 
     flexi_logger::Logger::with_str("debug")
         .log_target(log_set)
         .suffix("log")
         .directory("logs")
-        .rotate(Criterion::AgeOrSize(Age::Day,1024*1024*5),Naming::Numbers,Cleanup::KeepLogFiles(30))
+        .rotate(
+            Criterion::AgeOrSize(Age::Day, 1024 * 1024 * 5),
+            Naming::Numbers,
+            Cleanup::KeepLogFiles(30),
+        )
         .print_message()
         .format(flexi_logger::opt_format)
         .set_palette("196;208;6;7;8".into())
         .start()
         .unwrap();
 }
-

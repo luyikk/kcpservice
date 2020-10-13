@@ -147,7 +147,7 @@ where
                         }
                     }
 
-                    if remove_vec.len() > 0 {
+                    if !remove_vec.is_empty() {
                         if let Some(mut tx) = udp_server.get_msg_tx() {
                             for conv in remove_vec.iter() {
                                 if let Some(clean_input) = clean_input.lock_arc().await.get() {
