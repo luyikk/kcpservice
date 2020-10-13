@@ -29,6 +29,7 @@ impl Connect {
         let (mut reader, mut writer) = TcpStream::connect(&addr).await?.into_split();
         let (mut tx, rx) = channel(1024);
         let read_tx = tx.clone();
+        let s_addr=addr.clone();
         tokio::spawn(async move {
             while let Ok(len) = reader.read_u32_le().await {
                 let mut buff = vec![0; len as usize];
@@ -47,10 +48,18 @@ impl Connect {
 
         let (tx, mut rx_send): (UnboundedSender<XBWrite>, UnboundedReceiver<XBWrite>) =
             unbounded_channel();
+
         tokio::spawn(async move {
             while let Some(ref data) = rx_send.recv().await {
-                if writer.write(data).await.is_err() {
-                    break;
+                if !data.is_empty() {
+                    if writer.write(data).await.is_err() {
+                        break;
+                    }
+                }else{
+                    debug!("shutdown tcp connect:{}",s_addr);
+                    if let Err(er)= writer.shutdown().await{
+                        error!("shutdown tcp client error:{}->{:?}",er,er);
+                    }
                 }
             }
             debug!("tcp send drop");

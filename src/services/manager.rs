@@ -12,6 +12,8 @@ use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use xbinary::XBRead;
 use ServicesCmd::*;
+use tokio::time::{delay_for, Duration};
+
 
 /// 服务器操作命令
 pub enum ServicesCmd {
@@ -19,6 +21,7 @@ pub enum ServicesCmd {
     OpenService(u32, u32, String),
     SendBuff(u32, u32, XBRead),
     DropClientPeer(u32),
+    CheckPing
 }
 
 impl Debug for ServicesCmd {
@@ -44,6 +47,9 @@ impl Debug for ServicesCmd {
                 .debug_struct("DropClientPeer")
                 .field("session_id", session_id)
                 .finish(),
+            CheckPing=>f
+                .debug_struct("CheckPing")
+                .finish()
         }
     }
 }
@@ -218,10 +224,26 @@ impl ServicesManager {
                                 error! {"DropClientPeer error service {} session_id:{} error:{}->{:?}",service.service_id,session_id,er,er}
                             }
                         }
+                    },
+                    CheckPing=>{
+                        for service in inner_service_manager.services.borrow().values() {
+                            service.check_ping();
+                        }
                     }
                 }
             }
         });
+
+        tokio::spawn(async move{
+            loop{
+                if tx.send(CheckPing).is_err(){
+                    break;
+                }
+                //每隔5秒发一次PING
+                delay_for(Duration::from_secs(5)).await;
+            }
+        });
+
         Ok(service_manager)
     }
 
