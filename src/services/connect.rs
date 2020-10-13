@@ -29,7 +29,7 @@ impl Connect {
         let (mut reader, mut writer) = TcpStream::connect(&addr).await?.into_split();
         let (mut tx, rx) = channel(1024);
         let read_tx = tx.clone();
-        let s_addr=addr.clone();
+        let s_addr = addr.clone();
         tokio::spawn(async move {
             while let Ok(len) = reader.read_u32_le().await {
                 let mut buff = vec![0; len as usize];
@@ -55,10 +55,10 @@ impl Connect {
                     if writer.write(data).await.is_err() {
                         break;
                     }
-                }else{
-                    debug!("shutdown tcp connect:{}",s_addr);
-                    if let Err(er)= writer.shutdown().await{
-                        error!("shutdown tcp client error:{}->{:?}",er,er);
+                } else {
+                    debug!("shutdown tcp connect:{}", s_addr);
+                    if let Err(er) = writer.shutdown().await {
+                        error!("shutdown tcp client error:{}->{:?}", er, er);
                     }
                 }
             }

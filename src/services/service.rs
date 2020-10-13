@@ -58,7 +58,7 @@ pub struct ServiceInner {
     pub connect: Arc<Mutex<Option<Connect>>>,
     pub msg_ids: UnsafeCell<Vec<i32>>,
     pub sender: Arc<Sender>,
-    pub last_ping_time:AtomicI64,
+    pub last_ping_time: AtomicI64,
     pub ping_delay_tick: AtomicI64,
     pub client_handle: ClientHandle,
     pub wait_open_table: Mutex<AHashSet<u32>>,
@@ -97,7 +97,7 @@ impl Service {
                 connect: Arc::new(Mutex::new(None)),
                 msg_ids: UnsafeCell::new(Vec::new()),
                 sender: Arc::new(Sender::new()),
-                last_ping_time:AtomicI64::new(0),
+                last_ping_time: AtomicI64::new(0),
                 ping_delay_tick: AtomicI64::new(0),
                 wait_open_table: Mutex::new(AHashSet::new()),
                 open_table: UnsafeCell::new(AHashSet::new()),
@@ -210,7 +210,7 @@ impl Service {
             "service:{}-{}-{} disconnect start reconnect",
             self.service_id, self.ip, self.port
         );
-        self.inner.last_ping_time.store(0,Ordering::Release);
+        self.inner.last_ping_time.store(0, Ordering::Release);
         self.inner.sender.clean();
         self.inner.connect.lock_arc().await.take();
         self.try_connect(true).await;
@@ -232,11 +232,16 @@ impl Service {
                       self.inner.ping_delay_tick.load(Ordering::Acquire));
 
                 if let Err(er) = sender.send(XBWrite::new()) {
-                    error!("service{} ping time out,need disconnect error:{}->{:?}", self.service_id, er, er);
+                    error!(
+                        "service{} ping time out,need disconnect error:{}->{:?}",
+                        self.service_id, er, er
+                    );
                 }
-
             } else if let Err(er) = Self::send_ping(now, sender) {
-                    error!("service{} send ping  error:{}->{:?}", self.service_id, er, er);
+                error!(
+                    "service{} send ping  error:{}->{:?}",
+                    self.service_id, er, er
+                );
             }
         }
     }
@@ -274,16 +279,11 @@ impl Service {
                             let tick = reader.read_bit7_i64();
                             if tick.0 > 0 {
                                 reader.advance(tick.0);
-                                let now=Self::timestamp();
+                                let now = Self::timestamp();
 
-                                inner
-                                    .ping_delay_tick
-                                    .store(now - tick.1, Ordering::Release);
+                                inner.ping_delay_tick.store(now - tick.1, Ordering::Release);
 
-                                inner
-                                    .last_ping_time
-                                    .store(now,Ordering::Release);
-
+                                inner.last_ping_time.store(now, Ordering::Release);
                             } else {
                                 return Err(format!("service:{} read tick fail", service_id).into());
                             }
@@ -523,7 +523,7 @@ impl Service {
     }
 
     /// 发送PING包
-    fn send_ping(time:i64, sender: UnboundedSender<XBWrite>)-> Result<(), Box<dyn Error>> {
+    fn send_ping(time: i64, sender: UnboundedSender<XBWrite>) -> Result<(), Box<dyn Error>> {
         let mut writer = XBWrite::new();
         writer.put_u32_le(0);
         writer.put_u32_le(0xFFFFFFFFu32);
