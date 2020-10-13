@@ -58,7 +58,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut config = KcpConfig::default();
     config.nodelay = Some(KcpNoDelayConfig::fastest());
     let kcp =
-        KcpListener::<Arc<ClientPeer>, _>::new("0.0.0.0:5555", config, timeout_second).await?;
+        KcpListener::<Arc<ClientPeer>, _>::new(format!("0.0.0.0:{}",SERVICE_CFG["listenPort"].as_i32().unwrap()), config, timeout_second).await?;
 
     kcp.set_kcpdrop_event_input(|conv| {
         let mut handle = USER_PEER_MANAGER.get_handle();
@@ -102,7 +102,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 /// 安装日及系统
 fn init_log_system() {
-    let mut show_std = true;
+    let mut show_std = false;
 
     for arg in args() {
         if arg.trim().to_uppercase() == "--STDLOG" {
