@@ -2,13 +2,13 @@ use super::super::services::ServiceHandler;
 use super::client::ClientPeer;
 use log::*;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xbinary::XBRead;
 use ClientHandleCmd::*;
+use ahash::AHashMap;
 
 pub enum ClientHandleCmd {
     CreatePeer(Arc<ClientPeer>),
@@ -108,7 +108,7 @@ impl ClientHandle {
 
 ///玩家peer管理服务
 pub struct UserClientManager {
-    users: RefCell<HashMap<u32, Arc<ClientPeer>>>,
+    users: RefCell<AHashMap<u32, Arc<ClientPeer>>>,
     handle: ClientHandle,
     service_handle: RefCell<Option<ServiceHandler>>,
 }
@@ -121,7 +121,7 @@ impl UserClientManager {
     pub fn new() -> Arc<UserClientManager> {
         let (tx, rx) = unbounded_channel();
         let res = Arc::new(UserClientManager {
-            users: RefCell::new(HashMap::new()),
+            users: RefCell::new(AHashMap::new()),
             handle: ClientHandle::new(tx),
             service_handle: RefCell::new(None),
         });
