@@ -443,6 +443,7 @@ impl Service {
     }
 
     /// 发送BUFF 智能路由用
+    #[inline]
     pub fn send_buffer_by_typeid(
         &self,
         session_id: u32,
@@ -463,6 +464,7 @@ impl Service {
     }
 
     /// 发送BUFF
+    #[inline]
     pub fn send_buffer(&self, session_id: u32, buffer: &[u8]) -> Result<(), Box<dyn Error>> {
         let mut writer = XBWrite::new();
         writer.put_u32_le(0);
@@ -475,6 +477,7 @@ impl Service {
     }
 
     /// 发送OPEN
+    #[inline]
     fn send_open(
         session_id: u32,
         ipaddress: String,
@@ -493,6 +496,7 @@ impl Service {
     }
 
     /// 发送注册网关
+    #[inline]
     fn send_register(gateway_id: u32, sender: &Arc<Sender>) -> Result<(), Box<dyn Error>> {
         let mut writer = XBWrite::new();
         writer.put_u32_le(0);
@@ -507,6 +511,7 @@ impl Service {
     }
 
     /// 发送断线
+    #[inline]
     fn send_disconnect(
         session_id: u32,
         sender: UnboundedSender<XBWrite>,
@@ -523,6 +528,7 @@ impl Service {
     }
 
     /// 发送PING包
+    #[inline]
     fn send_ping(time: i64, sender: UnboundedSender<XBWrite>) -> Result<(), Box<dyn Error>> {
         let mut writer = XBWrite::new();
         writer.put_u32_le(0);
