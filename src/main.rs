@@ -133,7 +133,7 @@ fn init_log_system() {
         )
         .print_message()
         .format(flexi_logger::opt_format)
-        .set_palette("196;208;6;7;8".into())
+        .set_palette("196;190;6;7;8".into())
         .start()
         .unwrap();
 }
