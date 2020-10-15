@@ -627,9 +627,9 @@ dependencies = [
 
 [[package]]
 name = "xbinary"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "392f719718ec22f96af379694f9cba9311e7fe8b8b3b359be01776347fa6d67f"
+checksum = "b7abb89182cee7bdd223d1de4719910f759c46fcf02c28b5a565394f15ede5fc"
 dependencies = [
  "bytes",
 ]

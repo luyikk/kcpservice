@@ -37,7 +37,8 @@ impl Connect {
                     break;
                 }
                 if let Err(er) = tx.send(ConnectCmd::Buff(buff)).await {
-                    error! {"recv data send error:{}",er}
+                    error! {"service:{} recv data send error:{}",addr,er}
+                    break;
                 }
             }
             debug!("disconnect to {}", addr);

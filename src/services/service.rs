@@ -277,15 +277,14 @@ impl Service {
                         }
                         "ping" => {
                             let tick = reader.read_bit7_i64();
+                            let now = Self::timestamp();
                             if tick.0 > 0 {
                                 reader.advance(tick.0);
-                                let now = Self::timestamp();
-
                                 inner.ping_delay_tick.store(now - tick.1, Ordering::Release);
-
                                 inner.last_ping_time.store(now, Ordering::Release);
                             } else {
-                                return Err(format!("service:{} read tick fail", service_id).into());
+                                warn!("service:{} read ping tick fail", service_id);
+                                inner.last_ping_time.store(now, Ordering::Release);
                             }
                         }
                         "open" => {
