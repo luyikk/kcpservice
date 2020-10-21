@@ -14,6 +14,7 @@ use xbinary::XBWrite;
 pub enum ConnectCmd {
     Buff(Vec<u8>),
     DropClient(u32),
+    Disconnect
 }
 
 pub struct Connect {
@@ -42,6 +43,11 @@ impl Connect {
                 }
             }
             debug!("disconnect to {}", addr);
+
+            if let Err(er) = tx.send(ConnectCmd::Disconnect).await {
+                error! {"service:{} send disconnect error:{}",addr,er}
+            }
+
             if let Err(er) = disconnect() {
                 error! {"disconnect error:{}",er}
             }

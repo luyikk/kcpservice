@@ -102,7 +102,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 /// 安装日及系统
 fn init_log_system() {
-    let mut show_std = false;
+    let mut show_std = true;
 
     for arg in args() {
         if arg.trim().to_uppercase() == "--STDLOG" {

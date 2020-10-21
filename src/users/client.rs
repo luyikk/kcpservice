@@ -152,16 +152,23 @@ impl ClientPeer {
             self.disconnect_now()?;
         } else {
             self.send_close(0).await?;
-            delay_for(Duration::from_millis(ms as u64)).await;
-            self.disconnect_now()?;
+            let session_id=self.session_id;
+            let kcp_weak= self.kcp_peer.clone();
+            tokio::spawn(async move {
+                delay_for(Duration::from_millis(ms as u64)).await;
+                info!("start kick peer:{}",session_id);
+                if let Some(kcp_peer)=kcp_weak.upgrade(){
+                    kcp_peer.disconnect();
+                }
+            });
+
         }
         Ok(())
     }
 
     /// 发送 CLOSE 0 后立即断线清理内存
     async fn kick(&self) -> Result<(), Box<dyn Error>> {
-        self.send_close(0).await?;
-        self.disconnect_now()?;
+        self.kick_wait_ms(3000).await?;
         Ok(())
     }
 
