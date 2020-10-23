@@ -210,12 +210,13 @@ impl ServicesManager {
                     }
                     //客户端断线
                     DropClientPeer(session_id) => {
-                        let mut send_drop_services = vec![];
-                        for service in inner_service_manager.services.borrow().values() {
-                            if service.have_session_id(session_id) {
-                                send_drop_services.push(service.clone());
-                            }
-                        }
+                        let send_drop_services:Vec<Arc<Service>> =
+                            inner_service_manager.services.borrow().values().filter(|service|{
+                                service.have_session_id(session_id)
+                            })
+                            .cloned()
+                            .collect();
+
                         for service in send_drop_services {
                             if let Err(er) = service.client_drop(session_id).await {
                                 error! {"DropClientPeer error service {} session_id:{} error:{}->{:?}",service.service_id,session_id,er,er}
