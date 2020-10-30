@@ -210,8 +210,8 @@ impl ServicesManager {
                     }
                     //客户端断线
                     DropClientPeer(session_id) => {
-                        let send_drop_services:Vec<Arc<Service>> =
-                            inner_service_manager.services.borrow().values().filter(|service|{
+                        let send_drop_services:Vec<Arc<Service>> = inner_service_manager.services.borrow().values()
+                            .filter(|service|{
                                 service.have_session_id(session_id)
                             })
                             .cloned()
