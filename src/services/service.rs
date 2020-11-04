@@ -197,9 +197,6 @@ impl Service {
 
                 delay_for(Duration::from_secs(5)).await;
             }
-
-            inner.sender.clean();
-            inner.connect.lock_arc().await.take();
         });
     }
 
