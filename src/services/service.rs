@@ -6,7 +6,7 @@ use ahash::AHashSet;
 use async_mutex::Mutex;
 use bytes::{Buf, BufMut, Bytes};
 use log::*;
-use std::cell::{RefCell, UnsafeCell};
+use std::cell::{UnsafeCell};
 use std::error::Error;
 use std::io;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -16,34 +16,40 @@ use tokio::time::{delay_for, Duration};
 use xbinary::{XBRead, XBWrite};
 
 ///用于存放发送句柄
-pub struct Sender(RefCell<Option<UnboundedSender<XBWrite>>>);
+pub struct Sender(UnsafeCell<Option<UnboundedSender<XBWrite>>>);
 
 unsafe impl Send for Sender {}
 unsafe impl Sync for Sender {}
 
 impl Sender {
     pub fn new() -> Sender {
-        Sender(RefCell::new(None))
+        Sender(UnsafeCell::new(None))
     }
 
     pub fn get(&self) -> Option<UnboundedSender<XBWrite>> {
-        if let Some(ref p) = *self.0.borrow() {
-            Some(p.clone())
-        } else {
-            None
+        unsafe {
+            if let Some(ref p) = *self.0.get() {
+                Some(p.clone())
+            } else {
+                None
+            }
         }
     }
 
     pub fn set(&self, p: UnboundedSender<XBWrite>) {
-        self.0.borrow_mut().replace(p);
+        unsafe {
+            *self.0.get() = Some(p);
+        }
     }
 
     pub fn clean(&self) {
-        self.0.borrow_mut().take();
+        unsafe {
+            *self.0.get() = None;
+        }
     }
 
     pub fn send(&self, data: XBWrite) -> Result<(), Box<dyn Error>> {
-        if let Some(ref sender) = *self.0.borrow() {
+        if let Some(sender) = self.get() {
             sender.send(data)?;
             Ok(())
         } else {
@@ -51,6 +57,7 @@ impl Sender {
         }
     }
 }
+
 
 pub struct ServiceInner {
     pub gateway_id: u32,

@@ -23,5 +23,6 @@ json = "0.12.4"
 flexi_logger = "0.16.1"
 
 [profile.release]
+panic="abort"
 lto = "fat"
 codegen-units = 1
