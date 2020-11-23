@@ -117,6 +117,11 @@ impl ClientPeer {
 
     /// 数据包处理
     async fn input_data(&self, data: Bytes) -> Result<(), Box<dyn Error>> {
+
+        if data.len()<4{
+            return Err(format!("peer:{} data len {} < 4",self.session_id, data.len()).into());
+        }
+
         let mut reader = XBRead::new(data);
         let server_id = reader.get_u32_le();
         match server_id {
