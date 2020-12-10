@@ -158,21 +158,21 @@ impl Service {
                                 ConnectCmd::DropClient(session_id) => {
                                     inner.wait_open_table.lock().await.remove(&session_id);
                                     unsafe {
-                                        if (*inner.open_table.get()).remove(&session_id) {
-                                            info!(
-                                                "disconnect peer:{} to service:{}",
-                                                session_id, service_id
+                                        (*inner.open_table.get()).remove(&session_id);
+                                    }
+
+                                    info!(
+                                        "disconnect peer:{} to service:{}",
+                                        session_id, service_id
+                                    );
+                                    if let Some(sender) = inner.sender.get() {
+                                        if let Err(er) =
+                                        Self::send_disconnect(session_id, sender)
+                                        {
+                                            error!(
+                                                "send disconnect to service:{} error:{:?}",
+                                                service_id, er
                                             );
-                                            if let Some(sender) = inner.sender.get() {
-                                                if let Err(er) =
-                                                    Self::send_disconnect(session_id, sender)
-                                                {
-                                                    error!(
-                                                        "send disconnect to service:{} error:{:?}",
-                                                        service_id, er
-                                                    );
-                                                }
-                                            }
                                         }
                                     }
                                 },
