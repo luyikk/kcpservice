@@ -338,7 +338,7 @@ where
             token: RefCell::new(TokenStore(None)),
             last_rev_time: AtomicI64::new(0),
             next_update_time: AtomicU32::new(0),
-            disconnect_event: RefCell::new(Some(Box::new(disconnect_event))),
+            disconnect_event: UnsafeCell::new(Some(Box::new(disconnect_event))),
             main_tx: tx,
         };
 
