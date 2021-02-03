@@ -10,7 +10,8 @@ use super::super::buffer_pool::BuffPool;
 use super::super::services::ServiceHandler;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::time::{delay_for, Duration};
+use tokio::time::sleep;
+use std::time::Duration;
 
 /// 玩家PEER
 pub struct ClientPeer {
@@ -160,7 +161,7 @@ impl ClientPeer {
             let session_id=self.session_id;
             let kcp_weak= self.kcp_peer.clone();
             tokio::spawn(async move {
-                delay_for(Duration::from_millis(ms as u64)).await;
+                sleep(Duration::from_millis(ms as u64)).await;
                 info!("start kick peer:{}",session_id);
                 if let Some(kcp_peer)=kcp_weak.upgrade(){
                     kcp_peer.disconnect();

@@ -28,7 +28,7 @@ impl Connect {
         disconnect: Box<dyn FnOnce() -> Result<(), SendError<ServicesCmd>> + 'static + Send>,
     ) -> io::Result<(Connect, UnboundedSender<XBWrite>)> {
         let (mut reader, mut writer) = TcpStream::connect(&addr).await?.into_split();
-        let (mut tx, rx) = channel(1024);
+        let (tx, rx) = channel(1024);
         let read_tx = tx.clone();
         let s_addr = addr.clone();
         tokio::spawn(async move {

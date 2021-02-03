@@ -12,8 +12,9 @@ use std::io;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::time::{delay_for, Duration};
+use tokio::time::sleep;
 use xbinary::{XBRead, XBWrite};
+use std::time::Duration;
 
 ///用于存放发送句柄
 pub struct Sender(UnsafeCell<Option<UnboundedSender<XBWrite>>>);
@@ -127,7 +128,7 @@ impl Service {
         let inner = self.inner.clone();
         tokio::spawn(async move {
             if need_wait {
-                delay_for(Duration::from_secs(5)).await;
+                sleep(Duration::from_secs(5)).await;
             }
 
             loop {
@@ -202,7 +203,7 @@ impl Service {
                     }
                 }
 
-                delay_for(Duration::from_secs(5)).await;
+                sleep(Duration::from_secs(5)).await;
             }
         });
     }

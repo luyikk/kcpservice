@@ -10,9 +10,10 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
-use tokio::time::{delay_for, Duration};
+use tokio::time::sleep;
 use xbinary::XBRead;
 use ServicesCmd::*;
+use std::time::Duration;
 
 /// 服务器操作命令
 pub enum ServicesCmd {
@@ -247,7 +248,7 @@ impl ServicesManager {
                     break;
                 }
                 //每隔5秒发一次PING
-                delay_for(Duration::from_secs(5)).await;
+                sleep(Duration::from_secs(5)).await;
             }
         });
 

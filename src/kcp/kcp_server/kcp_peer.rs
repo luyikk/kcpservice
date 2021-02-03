@@ -2,7 +2,7 @@ use super::super::kcp_module::{Kcp, KcpResult};
 use crate::udp::{RecvType, TokenStore};
 use async_mutex::Mutex;
 use log::*;
-use std::cell::{RefCell, UnsafeCell};
+use std::cell::RefCell;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use tokio::sync::mpsc::Sender;
@@ -65,7 +65,7 @@ impl Kcp {
     }
 }
 
-pub type DisconnectFnStore = UnsafeCell<Option<Box<dyn FnOnce(u32)>>>;
+pub type DisconnectFnStore = Mutex<Option<Box<dyn FnOnce(u32)>>>;
 
 /// KCP Peer
 /// UDP的包进入 KCP PEER 经过KCP 处理后 输出
@@ -95,9 +95,8 @@ unsafe impl<T> Sync for KcpPeer<T> {}
 /// 简化KCP PEER 函数
 impl<T: Send> KcpPeer<T> {
     pub fn disconnect(&self) {
-        unsafe {
-            let call_value = (*self.disconnect_event.get()).take();
-            if let Some(call) = call_value {
+        if let Some(mut call_value)=self.disconnect_event.try_lock() {
+            if let Some(call) = call_value.take() {
                 call(self.conv);
             }
         }
