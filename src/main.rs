@@ -109,6 +109,14 @@ fn init_log_system() {
             show_std = true;
             println!("open stderr log out");
         }
+        else if arg.trim().to_uppercase()=="-VV"{
+            println!("Build Timestamp: {}", env!("VERGEN_BUILD_TIMESTAMP"));
+            println!("GIT BRANCH: {}",env!("VERGEN_GIT_BRANCH"));
+            println!("GIT COMMIT DATE: {}",env!("VERGEN_GIT_COMMIT_TIMESTAMP"));
+            println!("GIT SHA: {}",env!("VERGEN_GIT_SHA"));
+            println!("PROFILE: {}",env!("VERGEN_CARGO_PROFILE"));
+            panic!("-vv")
+        }
     }
     for (name, arg) in std::env::vars() {
         if name.trim() == "STDLOG" && arg.trim() == "1" {

@@ -153,7 +153,7 @@ impl ClientPeer {
     }
 
     /// 先发送断线包等待多少毫秒清理内存
-    pub async fn kick_wait_ms(&self, ms: i32) -> Result<(), Box<dyn Error>> {
+    pub async fn kick_wait_ms(&self, mut ms: i32) -> Result<(), Box<dyn Error>> {
         if ms == 3111 {
             self.disconnect_now()?;
         } else {
@@ -161,6 +161,9 @@ impl ClientPeer {
             let session_id=self.session_id;
             let kcp_weak= self.kcp_peer.clone();
             tokio::spawn(async move {
+                if ms >30000 || ms <0{
+                    ms=5000;
+                }
                 sleep(Duration::from_millis(ms as u64)).await;
                 info!("start kick peer:{}",session_id);
                 if let Some(kcp_peer)=kcp_weak.upgrade(){
