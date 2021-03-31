@@ -109,7 +109,7 @@ fn init_log_system() {
             show_std = true;
             println!("open stderr log out");
         }
-        else if arg.trim().to_uppercase()=="-VV"{
+        else if arg.trim().to_uppercase()=="-V"{
             println!("Build Timestamp: {}", env!("VERGEN_BUILD_TIMESTAMP"));
             println!("GIT BRANCH: {}",env!("VERGEN_GIT_BRANCH"));
             println!("GIT COMMIT DATE: {}",env!("VERGEN_GIT_COMMIT_TIMESTAMP"));
