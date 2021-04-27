@@ -153,7 +153,6 @@ impl Service {
                                     if let Err(er) = Self::read_data(data, service_id, &inner).await
                                     {
                                         error!("read data error:{:?}", er);
-                                        break;
                                     }
                                 }
                                 ConnectCmd::DropClient(session_id) => {
