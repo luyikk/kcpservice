@@ -292,13 +292,13 @@ where
                                     )).await
                                     {
                                         let error = error_input.lock().await;
-                                        let _ = error(Some(addr), anyhow!("{}",er));
+                                        let _ = error(Some(addr), anyhow!(er));
                                         break;
                                     }
                                 },
                                 Err(er) => {
                                     let error = error_input.lock().await;
-                                    let stop = error(None, anyhow!("{}",er));
+                                    let stop = error(None, anyhow!(er));
                                     if stop {
                                         return;
                                     }
@@ -314,20 +314,14 @@ where
             while let Some(recv_type) = rx.recv().await {
                 match recv_type {
                     RecvType::INPUT(send_sock, addr, data) => {
-                        let err = {
-                            let res = input(self.inner.clone(), send_sock, addr, data).await;
-                            match res {
-                                Err(er) => Some(format!("{}->{:?}", er, er)),
-                                Ok(_) => None,
-                            }
-                        };
-                        if let Some(er_msg) = err {
+                        if let Err(er) = input(self.inner.clone(), send_sock, addr, data).await{
                             let error = err_input.lock().await;
-                            let stop = error(Some(addr), anyhow!("{}",er_msg));
+                            let stop = error(Some(addr), er);
                             if stop {
                                 break;
                             }
                         }
+
                     }
                     RecvType::REMOVE(ids) => {
                         if let Some(ref remove_input) = self.remove_event {
