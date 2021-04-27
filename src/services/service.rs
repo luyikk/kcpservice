@@ -143,6 +143,12 @@ impl Service {
 
                         if let Err(er) = Self::send_register(inner.gateway_id, &inner.sender) {
                             error!("register {} gateway error:{:?}", service_id, er);
+                            if let Err(er) = inner.sender.send(XBWrite::new()) {
+                                error!(
+                                    "service{}  disconnect error:{}->{:?}",
+                                     service_id, er, er
+                                );
+                            }
                             break;
                         }
 
