@@ -128,7 +128,7 @@ where
 {
     ///用于非windows 创建socket,和windows的区别在于开启了 reuse_port
     #[cfg(not(target_os = "windows"))]
-    fn make_udp_client<A: ToSocketAddrs>(addr: &A) -> Result<std::net::UdpSocket, Box<dyn Error>> {
+    fn make_udp_client<A: ToSocketAddrs>(addr: &A) -> Result<std::net::UdpSocket> {
         let res = UdpBuilder::new_v4()?
             .reuse_address(true)?
             .reuse_port(true)?
