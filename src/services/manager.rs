@@ -5,7 +5,6 @@ use bytes::Buf;
 use json::JsonValue;
 use log::*;
 use std::cell::RefCell;
-use std::error::Error;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use tokio::sync::mpsc::error::SendError;
@@ -14,6 +13,7 @@ use tokio::time::sleep;
 use xbinary::XBRead;
 use ServicesCmd::*;
 use std::time::Duration;
+use anyhow::*;
 
 /// 服务器操作命令
 pub enum ServicesCmd {
@@ -111,7 +111,7 @@ impl ServicesManager {
     pub fn new(
         config: &JsonValue,
         client_handler: ClientHandle,
-    ) -> Result<Arc<ServicesManager>, Box<dyn Error>> {
+    ) -> Result<Arc<ServicesManager>> {
         let (tx, mut rx) = unbounded_channel();
 
         let servers = ServicesManager {
@@ -138,11 +138,10 @@ impl ServicesManager {
                 .insert(service.service_id, Arc::new(service))
                 .is_some()
             {
-                return Err(format!(
+                bail!(
                     "service_id: {} is have,check service_cfg.json",
                     cfg["serviceId"].as_u32().unwrap()
                 )
-                .into());
             }
         }
 
@@ -256,7 +255,7 @@ impl ServicesManager {
     }
 
     /// 启动服务
-    pub async fn start(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn start(&self) -> Result<()> {
         for service in self.services.borrow().values() {
             service.start().await;
         }

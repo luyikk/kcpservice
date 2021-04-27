@@ -7,7 +7,6 @@ use async_mutex::Mutex;
 use bytes::{Buf, BufMut, Bytes};
 use log::*;
 use std::cell::{UnsafeCell};
-use std::error::Error;
 use std::io;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
@@ -15,6 +14,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::sleep;
 use xbinary::{XBRead, XBWrite};
 use std::time::Duration;
+use anyhow::*;
 
 ///用于存放发送句柄
 pub struct Sender(UnsafeCell<Option<UnboundedSender<XBWrite>>>);
@@ -49,13 +49,10 @@ impl Sender {
         }
     }
 
-    pub fn send(&self, data: XBWrite) -> Result<(), Box<dyn Error>> {
-        if let Some(sender) = self.get() {
-            sender.send(data)?;
-            Ok(())
-        } else {
-            Err("not found sender tx, check connect".into())
-        }
+    pub fn send(&self, data: XBWrite) -> Result<()> {
+        let sender= self.get().context("not found sender tx, check connect")?;
+        sender.send(data)?;
+        Ok(())
     }
 }
 
@@ -229,7 +226,7 @@ impl Service {
     }
 
     /// 断线
-    pub async fn disconnect(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn disconnect(&self) -> Result<()> {
         info!(
             "service:{}-{}-{} disconnect start reconnect",
             self.service_id, self.ip, self.port
@@ -271,7 +268,7 @@ impl Service {
     }
 
     /// 发送数据
-    pub fn send(&self, data: XBWrite) -> Result<(), Box<dyn Error>> {
+    pub fn send(&self, data: XBWrite) -> Result<()> {
         self.inner.sender.send(data)
     }
 
@@ -280,14 +277,14 @@ impl Service {
         data: Vec<u8>,
         service_id: u32,
         inner: &Arc<ServiceInner>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<()> {
         let mut reader = XBRead::new(Bytes::from(data));
         let session_id = reader.get_u32_le();
         if session_id == 0xFFFFFFFFu32 {
             //到网关的数据
             let cmd = reader.read_string_bit7_len();
             match cmd {
-                None => return Err(format!("service:{} not read cmd", service_id).into()),
+                None => bail!("service:{} not read cmd", service_id),
                 Some(cmd) => {
                     match &cmd[..] {
                         "typeids" => {
@@ -338,71 +335,49 @@ impl Service {
                                     }
                                 }
                             } else {
-                                return Err(format!(
+                                bail!(
                                     "service:{} read open session_id fail",
                                     service_id
                                 )
-                                .into());
                             }
                         }
                         "close" => {
                             let session_id = reader.read_bit7_u32();
-                            if session_id.0 > 0 {
-                                reader.advance(session_id.0);
-                                let session_id = session_id.1;
-                                // 如果TRUE 说明还没OPEN 就被CLOSE了
-                                if !inner.wait_open_table.lock().await.remove(&session_id) {
-                                    unsafe {
-                                        if !(*inner.open_table.get()).remove(&session_id) {
-                                            //如果OPEN表里面找不到那么打警告返回
-                                            warn!(
-                                                "service:{} not found SessionId:{} close is fail",
-                                                service_id, session_id
-                                            );
-                                            return Ok(());
-                                        }
+                            ensure!(session_id.0 > 0,"service:{} read close is fail", service_id);
+                            reader.advance(session_id.0);
+                            let session_id = session_id.1;
+                            // 如果TRUE 说明还没OPEN 就被CLOSE了
+                            if !inner.wait_open_table.lock().await.remove(&session_id) {
+                                unsafe {
+                                    if !(*inner.open_table.get()).remove(&session_id) {
+                                        //如果OPEN表里面找不到那么打警告返回
+                                        warn!(
+                                            "service:{} not found SessionId:{} close is fail",
+                                            service_id, session_id
+                                        );
+                                        return Ok(());
                                     }
                                 }
-                                inner
-                                    .client_handle
-                                    .clone()
-                                    .close_peer(service_id, session_id)?;
-                            } else {
-                                return Err(
-                                    format!("service:{} read close is fail", service_id).into()
-                                );
                             }
+                            inner.client_handle.clone()
+                                .close_peer(service_id, session_id)?;
                         }
                         "kick" => {
                             let session_id = reader.read_bit7_u32();
-                            if session_id.0 > 0 {
-                                reader.advance(session_id.0);
-                                let session_id = session_id.1;
-                                let delay_ms = reader.read_bit7_i32();
-                                if delay_ms.0 > 0 {
-                                    reader.advance(delay_ms.0);
-                                    let delay_ms = delay_ms.1;
-                                    inner
-                                        .client_handle
-                                        .clone()
-                                        .kick_peer(service_id, session_id, delay_ms)?;
-                                } else {
-                                    return Err(format!(
-                                        "service:{} read kick delay is fail",
-                                        service_id
-                                    )
-                                    .into());
-                                }
-                            } else {
-                                return Err(
-                                    format!("service:{} read kick is fail", service_id).into()
-                                );
-                            }
+                            ensure!(session_id.0 > 0,"service:{} read kick is fail", service_id);
+                            reader.advance(session_id.0);
+                            let session_id = session_id.1;
+                            let delay_ms = reader.read_bit7_i32();
+                            ensure!(delay_ms.0 > 0,"service:{} read kick delay is fail", service_id);
+                            reader.advance(delay_ms.0);
+                            let delay_ms = delay_ms.1;
+                            inner
+                                .client_handle
+                                .clone()
+                                .kick_peer(service_id, session_id, delay_ms)?;
                         }
                         _ => {
-                            return Err(
-                                format!("service:{} incompatible cmd:{}", service_id, cmd).into()
-                            );
+                            bail!("service:{} incompatible cmd:{}", service_id, cmd)
                         }
                     }
                 }
@@ -417,8 +392,9 @@ impl Service {
     }
 
     /// 发起OPEN请求
-    pub async fn open(&self, session_id: u32, ipaddress: String) -> Result<(), Box<dyn Error>> {
+    pub async fn open(&self, session_id: u32, ipaddress: String) -> Result<()> {
         let mut wait_open_dict = self.inner.wait_open_table.lock().await;
+
         if wait_open_dict.insert(session_id) {
             if let Err(er) = Self::send_open(session_id, ipaddress, &self.inner.sender) {
                 wait_open_dict.remove(&session_id);
@@ -426,12 +402,11 @@ impl Service {
             }
             return Ok(());
         }
-
-        Err(format!("repeat open:{}", session_id).into())
+        bail!("repeat open:{}", session_id)
     }
 
     /// 客户端断线调用
-    pub async fn client_drop(&self, session_id: u32) -> Result<(), Box<dyn Error>> {
+    pub async fn client_drop(&self, session_id: u32) -> Result<()> {
         let connect = self.inner.connect.lock_arc().await;
         if let Some(ref connect) = *connect {
             connect
@@ -473,7 +448,7 @@ impl Service {
         serial: i32,
         typeid: i32,
         buffer: &[u8],
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<()> {
         let mut writer = XBWrite::new();
         writer.put_u32_le(0);
         writer.put_u32_le(session_id);
@@ -488,7 +463,7 @@ impl Service {
 
     /// 发送BUFF
     #[inline]
-    pub fn send_buffer(&self, session_id: u32, buffer: &[u8]) -> Result<(), Box<dyn Error>> {
+    pub fn send_buffer(&self, session_id: u32, buffer: &[u8]) -> Result<()> {
         let mut writer = XBWrite::new();
         writer.put_u32_le(0);
         writer.put_u32_le(session_id);
@@ -505,7 +480,7 @@ impl Service {
         session_id: u32,
         ipaddress: String,
         sender: &Arc<Sender>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<()> {
         let mut writer = XBWrite::new();
         writer.put_u32_le(0);
         writer.put_u32_le(0xFFFFFFFFu32);
@@ -520,7 +495,7 @@ impl Service {
 
     /// 发送注册网关
     #[inline]
-    fn send_register(gateway_id: u32, sender: &Arc<Sender>) -> Result<(), Box<dyn Error>> {
+    fn send_register(gateway_id: u32, sender: &Arc<Sender>) -> Result<()> {
         let mut writer = XBWrite::new();
         writer.put_u32_le(0);
         writer.put_u32_le(0xFFFFFFFFu32);
@@ -538,7 +513,7 @@ impl Service {
     fn send_disconnect(
         session_id: u32,
         sender: UnboundedSender<XBWrite>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<()> {
         let mut writer = XBWrite::new();
         writer.put_u32_le(0);
         writer.put_u32_le(0xFFFFFFFFu32);
@@ -552,7 +527,7 @@ impl Service {
 
     /// 发送PING包
     #[inline]
-    fn send_ping(time: i64, sender: UnboundedSender<XBWrite>) -> Result<(), Box<dyn Error>> {
+    fn send_ping(time: i64, sender: UnboundedSender<XBWrite>) -> Result<()> {
         let mut writer = XBWrite::new();
         writer.put_u32_le(0);
         writer.put_u32_le(0xFFFFFFFFu32);

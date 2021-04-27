@@ -1,15 +1,14 @@
-use super::error;
 use super::send::{SendPool, SendUDP};
 use net2::{UdpBuilder, UdpSocketExt};
 use std::cell::{RefCell, UnsafeCell};
 use std::convert::TryFrom;
-use std::error::Error;
 use std::future::Future;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{channel, Sender, UnboundedSender};
 use tokio::sync::Mutex;
+use anyhow::*;
 
 #[cfg(not(target_os = "windows"))]
 use net2::unix::UnixUdpBuilderExt;
@@ -46,7 +45,7 @@ unsafe impl Send for UdpContext {}
 unsafe impl Sync for UdpContext {}
 
 /// 错误输入类型
-pub type ErrorInput = Arc<Mutex<dyn Fn(Option<SocketAddr>, Box<dyn Error>) -> bool + Send>>;
+pub type ErrorInput = Arc<Mutex<dyn Fn(Option<SocketAddr>, anyhow::Error) -> bool + Send>>;
 
 /// UDP 服务器对象
 /// I 用来限制必须input的FN 原型,
@@ -105,7 +104,7 @@ impl<T: Send> Peer<T> {
     /// Send 发送数据包
     /// 作为最基本的函数之一,它采用了tokio的async send_to
     /// 首先,他会去弱指针里面拿到强指针,如果没有他会爆错
-    pub async fn send(&self, data: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    pub async fn send(&self, data: Vec<u8>) -> Result<()> {
         self.udp_sock.send((data, self.addr))?;
         Ok(())
     }
@@ -114,9 +113,9 @@ impl<T: Send> Peer<T> {
 impl<I, R> UdpServer<I, R, ()>
 where
     I: Fn(Arc<()>, SendUDP, SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
-    R: Future<Output = Result<(), Box<dyn Error>>> + Send,
+    R: Future<Output = Result<()>> + Send,
 {
-    pub async fn new<A: ToSocketAddrs>(addr: A) -> Result<Self, Box<dyn Error>> {
+    pub async fn new<A: ToSocketAddrs>(addr: A) -> Result<Self> {
         Self::new_inner(addr, Arc::new(())).await
     }
 }
@@ -124,7 +123,7 @@ where
 impl<I, R, S> UdpServer<I, R, S>
 where
     I: Fn(Arc<S>, SendUDP, SocketAddr, Vec<u8>) -> R + Send + Sync + 'static,
-    R: Future<Output = Result<(), Box<dyn Error>>> + Send,
+    R: Future<Output = Result<()>> + Send,
     S: Sync + Send + 'static,
 {
     ///用于非windows 创建socket,和windows的区别在于开启了 reuse_port
@@ -139,7 +138,7 @@ where
 
     ///用于windows创建socket
     #[cfg(target_os = "windows")]
-    fn make_udp_client<A: ToSocketAddrs>(addr: &A) -> Result<std::net::UdpSocket, Box<dyn Error>> {
+    fn make_udp_client<A: ToSocketAddrs>(addr: &A) -> Result<std::net::UdpSocket> {
         let res = UdpBuilder::new_v4()?.reuse_address(true)?.bind(addr)?;
         Ok(res)
     }
@@ -147,7 +146,7 @@ where
     ///创建udp socket,并设置buffer 大小
     fn create_udp_socket<A: ToSocketAddrs>(
         addr: &A,
-    ) -> Result<std::net::UdpSocket, Box<dyn Error>> {
+    ) -> Result<std::net::UdpSocket> {
         let res = Self::make_udp_client(addr)?;
         res.set_send_buffer_size(1784 * 10000)?;
         res.set_recv_buffer_size(1784 * 10000)?;
@@ -155,7 +154,7 @@ where
     }
 
     /// 创建tokio的udpsocket ,从std 创建
-    fn create_async_udp_socket<A: ToSocketAddrs>(addr: &A) -> Result<UdpSocket, Box<dyn Error>> {
+    fn create_async_udp_socket<A: ToSocketAddrs>(addr: &A) -> Result<UdpSocket> {
         let std_sock = Self::create_udp_socket(&addr)?;
         std_sock.set_nonblocking(true)?;
         let sock = UdpSocket::try_from(std_sock)?;
@@ -167,7 +166,7 @@ where
     fn create_udp_socket_list<A: ToSocketAddrs>(
         addr: &A,
         listen_count: usize,
-    ) -> Result<Vec<UdpSocket>, Box<dyn Error>> {
+    ) -> Result<Vec<UdpSocket>> {
         println!("cpus:{}", listen_count);
         let mut listens = vec![];
         for _ in 0..listen_count {
@@ -193,7 +192,7 @@ where
     pub async fn new_inner<A: ToSocketAddrs>(
         addr: A,
         inner: Arc<S>,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Result<Self> {
         let udp_list = Self::create_udp_socket_list(&addr, Self::get_cpu_count())?;
         let mut udp_map = vec![];
         let mut id = 1;
@@ -235,7 +234,7 @@ where
     }
 
     /// 设置错误输出
-    pub fn set_err_input<P: Fn(Option<SocketAddr>, Box<dyn Error>) -> bool + Send + 'static>(
+    pub fn set_err_input<P: Fn(Option<SocketAddr>, anyhow::Error) -> bool + Send + 'static>(
         &mut self,
         err_input: P,
     ) {
@@ -252,7 +251,7 @@ where
     /// 这个时候回触发 err_input, 如果没有使用 set_err_input 设置错误回调
     /// 那么 就会输出默认的 err_input,如果输出默认的 err_input 那么整个服务将会停止
     /// 所以如果不想服务停止,那么必须自己实现 err_input 并且返回 false
-    pub async fn start(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn start(&self) -> Result<()> {
         if let Some(ref input) = self.input {
             let err_input = {
                 if let Some(err) = &self.error_input {
@@ -260,7 +259,7 @@ where
                     x.clone()
                 } else {
                     Arc::new(Mutex::new(
-                        |addr: Option<SocketAddr>, err: Box<dyn Error>| {
+                        |addr: Option<SocketAddr>, err: anyhow::Error| {
                             match addr {
                                 Some(addr) => {
                                     println!("{}-{}", addr, err);
@@ -293,13 +292,13 @@ where
                                     )).await
                                     {
                                         let error = error_input.lock().await;
-                                        let _ = error(Some(addr), Box::new(er));
+                                        let _ = error(Some(addr), anyhow!("{}",er));
                                         break;
                                     }
                                 },
                                 Err(er) => {
                                     let error = error_input.lock().await;
-                                    let stop = error(None, error::Error::IOError(er).into());
+                                    let stop = error(None, anyhow!("{}",er));
                                     if stop {
                                         return;
                                     }
@@ -324,7 +323,7 @@ where
                         };
                         if let Some(er_msg) = err {
                             let error = err_input.lock().await;
-                            let stop = error(Some(addr), er_msg.into());
+                            let stop = error(Some(addr), anyhow!("{}",er_msg));
                             if stop {
                                 break;
                             }

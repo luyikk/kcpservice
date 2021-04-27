@@ -9,13 +9,13 @@ use async_mutex::Mutex;
 use bytes::{BufMut, Bytes, BytesMut};
 use log::*;
 use std::cell::{RefCell, UnsafeCell};
-use std::error::Error;
 use std::future::Future;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
+use anyhow::*;
 
 /// KcpListener 整个KCP 服务的入口点
 /// config 存放KCP 配置
@@ -36,7 +36,7 @@ unsafe impl<S, R> Sync for KcpListener<S, R>{}
 impl<S, R> KcpListener<S, R>
 where
     S: Send + 'static,
-    R: Future<Output = Result<(), Box<dyn Error>>> + Send + 'static,
+    R: Future<Output = Result<()>> + Send + 'static,
 {
     /// 创建一个KCPListener
     /// addr 监听的本地地址:端口
@@ -45,7 +45,7 @@ where
         addr: A,
         config: KcpConfig,
         drop_timeout_second: i64,
-    ) -> Result<Arc<Self>, Box<dyn Error>> {
+    ) -> Result<Arc<Self>> {
         // 初始化一个kcp_listener
         let kcp_listener = KcpListener {
             udp_server: UdpServerStore(UnsafeCell::new(None)),
@@ -94,14 +94,11 @@ where
     }
 
     /// 启动服务
-    pub async fn start(&self) -> Result<(), Box<dyn Error>> {
-        if let Some(udp_server) = self.udp_server.get() {
-            self.update();
-            self.cleanup();
-            udp_server.start().await?;
-        } else {
-            return Err("udp_server is nil".into());
-        }
+    pub async fn start(&self) -> Result<()> {
+        let udp_server=self.udp_server.get().context("udp_server is nil")?;
+        self.update();
+        self.cleanup();
+        udp_server.start().await?;
         Ok(())
     }
 
@@ -179,7 +176,7 @@ where
     /// 异常输入
     /// 打印日志
     #[inline]
-    fn err_input(addr: Option<SocketAddr>, err: Box<dyn Error>) -> bool {
+    fn err_input(addr: Option<SocketAddr>, err: anyhow::Error) -> bool {
         match addr {
             Some(addr) => error!("udp server {} err:{}", addr, err),
             None => error!("udp server err:{}", err),
@@ -206,7 +203,7 @@ where
         sender: SendUDP,
         addr: SocketAddr,
         data: Vec<u8>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<()> {
         if data.len() >= 24 {
             let kcp_peer = Self::get_kcp_peer_and_input(&this, sender, addr, &data).await;
             Self::recv_buff(this, kcp_peer).await?;
@@ -221,7 +218,7 @@ where
 
     /// 读取数据包
     #[inline]
-    async fn recv_buff(this: Arc<Self>, kcp_peer: Arc<KcpPeer<S>>) -> Result<(), Box<dyn Error>> {
+    async fn recv_buff(this: Arc<Self>, kcp_peer: Arc<KcpPeer<S>>) -> Result<()> {
         while let Ok(len) = kcp_peer.peeksize().await {
             let mut buff = vec![0; len];
             if kcp_peer.recv(&mut buff).await.is_ok() {
@@ -278,7 +275,7 @@ where
         sender: SendUDP,
         addr: SocketAddr,
         data: Vec<u8>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<()> {
         // 清除上一次的kcp
         // 创建一个 conv 写入临时连接表
         // 给客户端回复 conv

@@ -1,10 +1,10 @@
 use crate::KcpPeer;
 use bytes::{Buf, BufMut, Bytes};
 use log::*;
-use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::{Arc, Weak};
 use xbinary::*;
+use anyhow::*;
 
 use super::super::buffer_pool::BuffPool;
 use super::super::services::ServiceHandler;
@@ -53,7 +53,7 @@ impl ClientPeer {
     }
 
     /// 向0号服务器发起OPEN
-    pub fn open(&self, service_id: u32) -> Result<(), Box<dyn Error>> {
+    pub fn open(&self, service_id: u32) -> Result<()> {
         if let Some(addr) = self.get_addr() {
             self.service_handler
                 .clone()
@@ -66,7 +66,7 @@ impl ClientPeer {
     }
 
     /// 服务器通知 设置OPEN成功
-    pub async fn open_service(&self, service_id: u32) -> Result<(), Box<dyn Error>> {
+    pub async fn open_service(&self, service_id: u32) -> Result<()> {
         info!("service:{} open peer:{} OK", service_id, self.session_id);
         self.is_open_zero.store(true, Ordering::Release);
         self.send_open(service_id).await?;
@@ -74,7 +74,7 @@ impl ClientPeer {
     }
 
     /// 服务器通知 关闭某个服务
-    pub async fn close_service(&self, service_id: u32) -> Result<(), Box<dyn Error>> {
+    pub async fn close_service(&self, service_id: u32) -> Result<()> {
         info!("service:{} Close peer:{} OK", service_id, self.session_id);
         if service_id == 0 {
             self.kick().await?;
@@ -85,7 +85,7 @@ impl ClientPeer {
     }
 
     /// 网络数据包输入,处理
-    pub async fn input_buff(&self, buff: &[u8]) -> Result<(), Box<dyn Error>> {
+    pub async fn input_buff(&self, buff: &[u8]) -> Result<()> {
         let input_data_array = {
             let mut input_data_vec = Vec::with_capacity(1);
             let mut buff_pool = self.buff_pool.borrow_mut();
@@ -117,12 +117,9 @@ impl ClientPeer {
     }
 
     /// 数据包处理
-    async fn input_data(&self, data: Bytes) -> Result<(), Box<dyn Error>> {
+    async fn input_data(&self, data: Bytes) -> Result<()> {
 
-        if data.len()<4{
-            return Err(format!("peer:{} data len {} < 4",self.session_id, data.len()).into());
-        }
-
+        ensure!(data.len()>4,"peer:{} data len {} < 4",self.session_id, data.len());
         let mut reader = XBRead::new(data);
         let server_id = reader.get_u32_le();
         match server_id {
@@ -153,7 +150,7 @@ impl ClientPeer {
     }
 
     /// 先发送断线包等待多少毫秒清理内存
-    pub async fn kick_wait_ms(&self, mut ms: i32) -> Result<(), Box<dyn Error>> {
+    pub async fn kick_wait_ms(&self, mut ms: i32) -> Result<()> {
         if ms == 3111 {
             self.disconnect_now()?;
         } else {
@@ -176,13 +173,13 @@ impl ClientPeer {
     }
 
     /// 发送 CLOSE 0 后立即断线清理内存
-    async fn kick(&self) -> Result<(), Box<dyn Error>> {
+    async fn kick(&self) -> Result<()> {
         self.kick_wait_ms(3000).await?;
         Ok(())
     }
 
     /// 立即断线,清理内存
-    pub fn disconnect_now(&self) -> Result<(), Box<dyn Error>> {
+    pub fn disconnect_now(&self) -> Result<()> {
         // 先关闭OPEN 0 标志位
         self.is_open_zero.store(false, Ordering::Release);
 
@@ -199,7 +196,7 @@ impl ClientPeer {
     }
 
     /// 发送数据
-    pub async fn send(&self, session_id: u32, data: &[u8]) -> Result<(), Box<dyn Error>> {
+    pub async fn send(&self, session_id: u32, data: &[u8]) -> Result<()> {
         if let Some(kcp_peer) = self.kcp_peer.upgrade() {
             let mut writer = XBWrite::new();
             writer.put_u32_le(0);
@@ -213,7 +210,7 @@ impl ClientPeer {
     }
 
     /// 发送OPEN
-    pub async fn send_open(&self, service_id: u32) -> Result<(), Box<dyn Error>> {
+    pub async fn send_open(&self, service_id: u32) -> Result<()> {
         if let Some(kcp_peer) = self.kcp_peer.upgrade() {
             let mut writer = XBWrite::new();
             writer.put_u32_le(0);
@@ -228,7 +225,7 @@ impl ClientPeer {
     }
 
     /// 发送CLOSE 0
-    pub async fn send_close(&self, service_id: u32) -> Result<(), Box<dyn Error>> {
+    pub async fn send_close(&self, service_id: u32) -> Result<()> {
         if let Some(kcp_peer) = self.kcp_peer.upgrade() {
             let mut writer = XBWrite::new();
             writer.put_u32_le(0);

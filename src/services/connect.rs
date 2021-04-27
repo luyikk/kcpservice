@@ -1,7 +1,6 @@
 use super::ServicesCmd;
 use log::*;
 use std::io;
-use std::result::Result::Ok;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::error::SendError;

@@ -1,8 +1,8 @@
 use super::kcp_peer::KcpPeer;
 use bytes::Bytes;
-use std::error::Error;
 use std::future::Future;
 use std::sync::Arc;
+use anyhow::*;
 
 /// 数据包输入原型
 type BuffInputType<S, R> = dyn Fn(Arc<KcpPeer<S>>, Bytes) -> R + 'static + Send + Sync;
@@ -10,7 +10,7 @@ type BuffInputType<S, R> = dyn Fn(Arc<KcpPeer<S>>, Bytes) -> R + 'static + Send 
 /// 用来存储 数据表输入函数
 pub struct BuffInputStore<S,R>(pub Option<Box<BuffInputType<S, R>>>);
 
-impl<S: Send + 'static, R: Future<Output = Result<(), Box<dyn Error>>> + Send + 'static>
+impl<S: Send + 'static, R: Future<Output = Result<()>> + Send + 'static>
     BuffInputStore<S, R>
 {
     /// 获取
