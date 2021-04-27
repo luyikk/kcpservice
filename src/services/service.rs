@@ -198,7 +198,7 @@ impl Service {
                         break;
                     }
                     Err(er) => {
-                        error!(
+                        debug!(
                             "connect to {}-{}:{} fail:{};restart in 5 seconds",
                             service_id, ip, port, er
                         );
