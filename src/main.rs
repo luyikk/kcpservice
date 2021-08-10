@@ -1,4 +1,4 @@
-#![feature(async_closure)]
+#![feature(async_closure,cursor_remaining)]
 #![allow(dead_code)]
 
 mod buffer_pool;

@@ -599,7 +599,7 @@ impl Kcp {
         let old_una = self.snd_una;
 
         let mut buf = Cursor::new(buf);
-        while buf.remaining() >= KCP_OVERHEAD as usize {
+        while buf.remaining() >= KCP_OVERHEAD as u64 {
             let conv = buf.get_u32_le();
             if conv != self.conv {
                 // This allows getting conv from this call, which allows us to allocate
@@ -622,14 +622,14 @@ impl Kcp {
             let una = buf.get_u32_le();
             let len = buf.get_u32_le() as usize;
 
-            if buf.remaining() < len as usize {
+            if buf.remaining() < len as u64 {
                 debug!(
                     "input bufsize={} payload length={} remaining={} not match",
                     input_size,
                     len,
                     buf.remaining()
                 );
-                return Err(Error::InvalidSegmentDataSize(len, buf.remaining()));
+                return Err(Error::InvalidSegmentDataSize(len, buf.remaining() as usize));
             }
 
             match cmd {
