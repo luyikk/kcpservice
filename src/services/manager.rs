@@ -183,7 +183,7 @@ impl ServicesManager {
                                             .await
                                         {
                                             if let Err(er) = service.send_buffer_by_typeid(
-                                                session_id, serial, typeid as i32, &buffer,
+                                                session_id, serial, typeid, &buffer,
                                             ) {
                                                 error! {"sendbuff 0xEEEEEEEE error service {} session_id:{} typeid:{} error:{}->{:?}",service_id,session_id,typeid,er,er}
                                             }
