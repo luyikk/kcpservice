@@ -175,15 +175,15 @@ impl ServicesManager {
                                 let (size, serial) = buffer.read_bit7_i32();
                                 if size > 0 {
                                     buffer.advance(size);
-                                    let (size, typeid) = buffer.read_bit7_i32();
+                                    let (size, typeid) = buffer.read_bit7_u32();
                                     if size > 0 {
                                         buffer.advance(size);
                                         if let Some(service) = inner_service_manager
-                                            .get_service_by_typeid(session_id, typeid)
+                                            .get_service_by_typeid(session_id, typeid as i32)
                                             .await
                                         {
                                             if let Err(er) = service.send_buffer_by_typeid(
-                                                session_id, serial, typeid, &buffer,
+                                                session_id, serial, typeid as i32, &buffer,
                                             ) {
                                                 error! {"sendbuff 0xEEEEEEEE error service {} session_id:{} typeid:{} error:{}->{:?}",service_id,session_id,typeid,er,er}
                                             }
