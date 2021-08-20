@@ -4,7 +4,7 @@ use super::buff_input_store::{BuffInputStore, KcpPeerDropInputStore};
 use super::kcp_peer::KcpPeer;
 use super::kcp_peer_manager::KcpPeerManager;
 use super::udp_server_store::UdpServerStore;
-use crate::udp::{RecvType, SendUDP, TokenStore, UdpServer};
+use crate::udp::{RevType, SendUDP, TokenStore, UdpServer};
 use async_mutex::Mutex;
 use bytes::{BufMut, Bytes, BytesMut};
 use log::*;
@@ -136,7 +136,7 @@ where
                                 if let Some(clean_input) = clean_input.lock_arc().await.get() {
                                     clean_input(*conv);
                                 }
-                                if let Err(er) = tx.send(RecvType::REMOVE(*conv)).await {
+                                if let Err(er) = tx.send(RevType::Remove(*conv)).await {
                                     error!("remove error:{:?}", er)
                                 }
                             }
@@ -263,7 +263,7 @@ where
         kcp_peer
             .last_rev_time
             .store(chrono::Local::now().timestamp(), Ordering::Release);
-        return kcp_peer;
+        kcp_peer
     }
 
     /// 创建一个KCP_PEER 并存入 Kcp_peers 字典中
@@ -311,7 +311,7 @@ where
                                 if let Some(kcpdrop_action) = kcpdrop_event.lock_arc().await.get() {
                                     kcpdrop_action(conv);
                                 }
-                                if let Err(er) = tx.send(RecvType::REMOVE(conv)).await {
+                                if let Err(er) = tx.send(RevType::Remove(conv)).await {
                                     error!("disconnect remove error:{:?}", er)
                                 }
                                 //等待500毫秒后再清除PEER 以保障UPDATE 的时候PEER 还存在

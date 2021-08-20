@@ -1,5 +1,5 @@
 use crate::udp::SendUDP;
-use crate::udp::{RecvType, UdpServer};
+use crate::udp::{RevType, UdpServer};
 use async_trait::*;
 use std::future::Future;
 use std::net::SocketAddr;
@@ -11,7 +11,7 @@ use anyhow::*;
 /// 定义了一个trait
 #[async_trait]
 pub trait UdpListener: Send + Sync {
-    fn get_msg_tx(&self) -> Option<Sender<RecvType>>;
+    fn get_msg_tx(&self) -> Option<Sender<RevType>>;
     async fn start(&self) -> Result<()>;
 }
 
@@ -22,7 +22,7 @@ where
     R: Future<Output = Result<()>> + Send,
     S: Send + Sync + 'static,
 {
-    fn get_msg_tx(&self) -> Option<Sender<RecvType>> {
+    fn get_msg_tx(&self) -> Option<Sender<RevType>> {
         self.get_msg_tx()
     }
 

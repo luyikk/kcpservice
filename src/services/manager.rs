@@ -217,20 +217,19 @@ impl ServicesManager {
                             .cloned()
                             .collect();
 
-                        if send_drop_services.len() >0 {
+                        if !send_drop_services.is_empty() {
                             for service in send_drop_services {
                                 if let Err(er) = service.client_drop(session_id).await {
                                     error! {"DropClientPeer error service {} session_id:{} error:{}->{:?}", service.service_id, session_id, er, er}
                                 }
                             }
                         }
-                        else{
-                            if let Some(service) = inner_service_manager.get_service(&0) {
-                                if let Err(er) = service.client_drop(session_id).await {
-                                    error! {"DropClientPeer error main service 0 session_id:{} error:{}->{:?}", session_id, er, er}
-                                }
+                        else if let Some(service) = inner_service_manager.get_service(&0) {
+                            if let Err(er) = service.client_drop(session_id).await {
+                                error! {"DropClientPeer error main service 0 session_id:{} error:{}->{:?}", session_id, er, er}
                             }
                         }
+
                     }
                     CheckPing => {
                         for service in inner_service_manager.services.borrow().values() {
@@ -281,7 +280,7 @@ impl ServicesManager {
 
     /// 获取服务器
     fn get_service(&self, service_id: &u32) -> Option<Arc<Service>> {
-        self.services.borrow().get(&service_id).cloned()
+        self.services.borrow().get(service_id).cloned()
     }
 
     /// 根据TYPEId 获取服务器

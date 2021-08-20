@@ -9,9 +9,9 @@ pub enum Error {
     InvalidMtu(usize),
     InvalidSegmentSize(usize),
     InvalidSegmentDataSize(usize, usize),
-    IoError(io::Error),
+    Io(io::Error),
     NeedUpdate,
-    RecvQueueEmpty,
+    RevQueueEmpty,
     ExpectingFragment,
     UnsupportCmd(u8),
     UserBufTooBig,
@@ -22,7 +22,7 @@ pub enum Error {
 impl StdError for Error {
     fn cause(&self) -> Option<&dyn StdError> {
         match *self {
-            Error::IoError(ref e) => Some(e),
+            Error::Io(ref e) => Some(e),
             _ => None,
         }
     }
@@ -41,11 +41,11 @@ impl fmt::Display for Error {
                 "invalid segment data size, expected {}, found {}",
                 *s, *o
             ),
-            Error::IoError(ref e) => e.fmt(f),
+            Error::Io(ref e) => e.fmt(f),
             Error::UnsupportCmd(ref e) => write!(f, "cmd {} is not supported", *e),
             Error::Other(ref msg) => write!(f, "Other error:{} ", msg),
             Error::NeedUpdate => write!(f, "NeedUpdate"),
-            Error::RecvQueueEmpty => write!(f, "RecvQueueEmpty"),
+            Error::RevQueueEmpty => write!(f, "RecvQueueEmpty"),
             Error::ExpectingFragment => write!(f, "ExpectingFragment"),
             Error::UserBufTooBig => write!(f, "UserBufTooBig"),
             Error::UserBufTooSmall => write!(f, "UserBufTooSmall"),
@@ -67,9 +67,9 @@ impl From<Error> for io::Error {
             Error::InvalidMtu(..) => ErrorKind::Other,
             Error::InvalidSegmentSize(..) => ErrorKind::Other,
             Error::InvalidSegmentDataSize(..) => ErrorKind::Other,
-            Error::IoError(err) => return err,
+            Error::Io(err) => return err,
             Error::NeedUpdate => ErrorKind::Other,
-            Error::RecvQueueEmpty => ErrorKind::WouldBlock,
+            Error::RevQueueEmpty => ErrorKind::WouldBlock,
             Error::ExpectingFragment => ErrorKind::WouldBlock,
             Error::UnsupportCmd(..) => ErrorKind::Other,
             Error::UserBufTooBig => ErrorKind::Other,
@@ -83,6 +83,6 @@ impl From<Error> for io::Error {
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
-        Error::IoError(err)
+        Error::Io(err)
     }
 }

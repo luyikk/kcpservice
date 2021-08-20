@@ -53,8 +53,11 @@ async fn main() -> Result<()> {
     USER_PEER_MANAGER.set_service_handler(SERVICE_MANAGER.get_handler());
 
     let timeout_second = SERVICE_CFG["clientTimeoutSeconds"].as_i64().unwrap();
-    let mut config = KcpConfig::default();
-    config.nodelay = Some(KcpNoDelayConfig::fastest());
+    let config=KcpConfig{
+        nodelay: Some(KcpNoDelayConfig::fastest()),
+        ..Default::default()
+    };
+
     let kcp =
         KcpListener::<Arc<ClientPeer>, _>::new(format!("0.0.0.0:{}",SERVICE_CFG["listenPort"].as_i32().unwrap()), config, timeout_second).await?;
 

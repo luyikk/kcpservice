@@ -1,5 +1,5 @@
 use super::super::kcp_module::{Kcp, KcpResult};
-use crate::udp::{RecvType, TokenStore};
+use crate::udp::{RevType, TokenStore};
 use async_mutex::Mutex;
 use log::*;
 use std::cell::RefCell;
@@ -80,7 +80,7 @@ pub struct KcpPeer<T> {
     pub last_rev_time: AtomicI64,
     pub next_update_time: AtomicU32,
     pub disconnect_event: DisconnectFnStore,
-    pub(crate) main_tx: Sender<RecvType>,
+    pub(crate) main_tx: Sender<RevType>,
 }
 
 impl<T> Drop for KcpPeer<T> {
@@ -135,7 +135,7 @@ impl<T: Send> KcpPeer<T> {
         self.kcp.flush_async().await
     }
 
-    pub fn get_main_tx(&self) -> Sender<RecvType> {
+    pub fn get_main_tx(&self) -> Sender<RevType> {
         self.main_tx.clone()
     }
 }

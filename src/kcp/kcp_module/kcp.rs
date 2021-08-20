@@ -307,14 +307,14 @@ impl Kcp {
 
                 Ok(len)
             }
-            None => Err(Error::RecvQueueEmpty),
+            None => Err(Error::RevQueueEmpty),
         }
     }
 
     /// Receive data from buffer
     pub fn recv(&mut self, buf: &mut [u8]) -> KcpResult<usize> {
         if self.rcv_queue.is_empty() {
-            return Err(Error::RecvQueueEmpty);
+            return Err(Error::RevQueueEmpty);
         }
 
         let peeksize = self.peeksize()?;
@@ -823,11 +823,19 @@ impl Kcp {
             return Err(Error::NeedUpdate);
         }
 
-        let mut segment = KcpSegment::default();
-        segment.conv = self.conv;
-        segment.cmd = KCP_CMD_ACK;
-        segment.wnd = self.wnd_unused();
-        segment.una = self.rcv_nxt;
+        // let mut segment = KcpSegment::default();
+        // segment.conv = self.conv;
+        // segment.cmd = KCP_CMD_ACK;
+        // segment.wnd = self.wnd_unused();
+        // segment.una = self.rcv_nxt;
+
+        let mut segment=KcpSegment {
+            conv: self.conv,
+            cmd: KCP_CMD_ACK,
+            wnd: self.wnd_unused(),
+            una: self.rcv_nxt,
+            ..Default::default()
+        };
 
         self._flush_ack(&mut segment)
     }
@@ -839,11 +847,19 @@ impl Kcp {
             return Ok(());
         }
 
-        let mut segment = KcpSegment::default();
-        segment.conv = self.conv;
-        segment.cmd = KCP_CMD_ACK;
-        segment.wnd = self.wnd_unused();
-        segment.una = self.rcv_nxt;
+        // let mut segment = KcpSegment::default();
+        // segment.conv = self.conv;
+        // segment.cmd = KCP_CMD_ACK;
+        // segment.wnd = self.wnd_unused();
+        // segment.una = self.rcv_nxt;
+
+        let mut segment=KcpSegment{
+            conv: self.conv,
+            cmd: KCP_CMD_ACK,
+            wnd:self.wnd_unused(),
+            una:self.rcv_nxt,
+            ..Default::default()
+        };
 
         self._flush_ack(&mut segment)?;
         self.probe_wnd_size();

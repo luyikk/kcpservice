@@ -158,7 +158,7 @@ impl ClientPeer {
             let session_id=self.session_id;
             let kcp_weak= self.kcp_peer.clone();
             tokio::spawn(async move {
-                if ms >30000 || ms <0{
+                if !(0..=30000).contains(&ms){
                     ms=5000;
                 }
                 sleep(Duration::from_millis(ms as u64)).await;

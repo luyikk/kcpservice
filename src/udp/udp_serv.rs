@@ -16,16 +16,16 @@ use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 
 /// 用于通知主线程具体工作
-pub enum RecvType {
-    INPUT(UnboundedSender<(Vec<u8>, SocketAddr)>, SocketAddr, Vec<u8>),
-    REMOVE(u32),
+pub enum RevType {
+    Input(UnboundedSender<(Vec<u8>, SocketAddr)>, SocketAddr, Vec<u8>),
+    Remove(u32),
 }
 
-impl Debug for RecvType {
+impl Debug for RevType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            RecvType::INPUT(_, _, _) => f.debug_struct("INPUT").finish(),
-            RecvType::REMOVE(_) => f.debug_struct("REMOVE").finish(),
+            RevType::Input(_, _, _) => f.debug_struct("INPUT").finish(),
+            RevType::Remove(_) => f.debug_struct("REMOVE").finish(),
         }
     }
 }
@@ -58,7 +58,7 @@ pub struct UdpServer<I, R, S> {
     input: Option<Arc<I>>,
     error_input: Option<ErrorInput>,
     remove_event: Option<Box<dyn Fn(u32)>>,
-    msg_tx: UnsafeCell<Option<Sender<RecvType>>>,
+    msg_tx: UnsafeCell<Option<Sender<RevType>>>,
     phantom:PhantomData<R>
 }
 
@@ -218,7 +218,7 @@ where
     }
 
     /// 获取消息通知tx
-    pub fn get_msg_tx(&self) -> Option<Sender<RecvType>> {
+    pub fn get_msg_tx(&self) -> Option<Sender<RevType>> {
         unsafe {
             if let Some(ref tx) = *self.msg_tx.get() {
                 return Some(tx.clone());
@@ -285,7 +285,7 @@ where
                         loop {
                             match recv_sock.recv_from(&mut buff).await {
                                 Ok((size, addr)) => {
-                                    if let Err(er) = move_data_tx.send(RecvType::INPUT(
+                                    if let Err(er) = move_data_tx.send(RevType::Input(
                                         send_sock.clone(),
                                         addr,
                                         buff[..size].to_vec(),
@@ -313,7 +313,7 @@ where
             }
             while let Some(recv_type) = rx.recv().await {
                 match recv_type {
-                    RecvType::INPUT(send_sock, addr, data) => {
+                    RevType::Input(send_sock, addr, data) => {
                         if let Err(er) = input(self.inner.clone(), send_sock, addr, data).await{
                             let error = err_input.lock().await;
                             let stop = error(Some(addr), er);
@@ -323,7 +323,7 @@ where
                         }
 
                     }
-                    RecvType::REMOVE(ids) => {
+                    RevType::Remove(ids) => {
                         if let Some(ref remove_input) = self.remove_event {
                             remove_input(ids);
                         }
