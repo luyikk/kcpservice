@@ -599,7 +599,7 @@ impl Kcp {
         let old_una = self.snd_una;
 
         let mut buf = Cursor::new(buf);
-        while buf.remaining() >= KCP_OVERHEAD as u64 {
+        while buf.remaining() >= KCP_OVERHEAD  {
             let conv = buf.get_u32_le();
             if conv != self.conv {
                 // This allows getting conv from this call, which allows us to allocate
@@ -622,7 +622,7 @@ impl Kcp {
             let una = buf.get_u32_le();
             let len = buf.get_u32_le() as usize;
 
-            if buf.remaining() < len as u64 {
+            if buf.remaining()< len {
                 debug!(
                     "input bufsize={} payload length={} remaining={} not match",
                     input_size,

@@ -308,7 +308,7 @@ impl Service {
                             if session_id.0 > 0 {
                                 reader.advance(session_id.0);
                                 let session_id = session_id.1;
-                                if session_id == 0 {
+                                if service_id == 0 {
                                     //如果是0号服务器需要到表里面查询一番 查不到打警告返回
                                     if !inner.wait_open_table.lock().await.remove(&session_id) {
                                         warn!("service:{} not found SessionId:{} open is fail,Maybe the client is disconnected.", service_id, session_id);
