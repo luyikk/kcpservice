@@ -19,7 +19,7 @@ use flexi_logger::{Age, Cleanup, Criterion, LogTarget, Naming};
 use json::JsonValue;
 use lazy_static::lazy_static;
 use mimalloc::MiMalloc;
-use anyhow::*;
+use anyhow::Result;
 use structopt::*;
 
 #[global_allocator]

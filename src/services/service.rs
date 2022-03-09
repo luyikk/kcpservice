@@ -14,7 +14,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::sleep;
 use xbinary::{XBRead, XBWrite};
 use std::time::Duration;
-use anyhow::*;
+use anyhow::{bail, Context, ensure, Result};
 
 ///用于存放发送句柄
 pub struct Sender(UnsafeCell<Option<UnboundedSender<XBWrite>>>);

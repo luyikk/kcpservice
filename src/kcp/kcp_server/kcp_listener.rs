@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
-use anyhow::*;
+use anyhow::{Context, Result};
 
 /// KcpListener 整个KCP 服务的入口点
 /// config 存放KCP 配置

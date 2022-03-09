@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{channel, Sender, UnboundedSender};
 use tokio::sync::Mutex;
-use anyhow::*;
+use anyhow::{anyhow, Result};
 
 #[cfg(not(target_os = "windows"))]
 use net2::unix::UnixUdpBuilderExt;

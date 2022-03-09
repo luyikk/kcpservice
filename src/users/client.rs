@@ -4,7 +4,7 @@ use log::*;
 use std::net::SocketAddr;
 use std::sync::{Arc, Weak};
 use xbinary::*;
-use anyhow::*;
+use anyhow::{ensure, Result};
 
 use super::super::buffer_pool::BuffPool;
 use super::super::services::ServiceHandler;
