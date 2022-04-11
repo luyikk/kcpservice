@@ -2,7 +2,6 @@ use super::super::users::ClientHandle;
 use super::Service;
 use ahash::AHashMap;
 use bytes::Buf;
-use json::JsonValue;
 use log::*;
 use std::cell::RefCell;
 use std::fmt::{Debug, Formatter};
@@ -14,6 +13,8 @@ use xbinary::XBRead;
 use ServicesCmd::*;
 use std::time::Duration;
 use anyhow::*;
+use crate::CONFIG;
+use crate::config::ServiceConfig;
 
 /// 服务器操作命令
 pub enum ServicesCmd {
@@ -89,7 +90,7 @@ impl ServiceHandler {
 /// 游戏服务器管理
 pub struct ServicesManager {
     pub gateway_id: u32,
-    pub service_cfg: JsonValue,
+    pub service_cfg: &'static [ServiceConfig],
     services: RefCell<AHashMap<u32, Arc<Service>>>,
     handler: UnboundedSender<ServicesCmd>,
     client_handler: ClientHandle,
@@ -109,27 +110,26 @@ unsafe impl Send for ServicesManager {}
 
 impl ServicesManager {
     pub fn new(
-        config: &JsonValue,
         client_handler: ClientHandle,
     ) -> Result<Arc<ServicesManager>> {
         let (tx, mut rx) = unbounded_channel();
 
         let servers = ServicesManager {
-            gateway_id: config["gatewayId"].as_u32().unwrap(),
-            service_cfg: config["services"].clone(),
+            gateway_id: CONFIG.gateway_id,
+            service_cfg: &CONFIG.services,
             services: RefCell::new(AHashMap::new()),
             handler: tx.clone(),
             client_handler,
         };
 
-        for cfg in servers.service_cfg.members() {
+        for cfg in servers.service_cfg.iter() {
             let service = Service::new(
                 ServiceManagerHandler(tx.clone()),
                 servers.client_handler.clone(),
                 servers.gateway_id,
-                cfg["serviceId"].as_u32().unwrap(),
-                cfg["ip"].to_string(),
-                cfg["port"].as_i32().unwrap(),
+                cfg.service_id,
+                cfg.ip.clone(),
+                cfg.port,
             );
 
             if servers
@@ -140,7 +140,7 @@ impl ServicesManager {
             {
                 bail!(
                     "service_id: {} is have,check service_cfg.json",
-                    cfg["serviceId"].as_u32().unwrap()
+                    cfg.service_id
                 )
             }
         }

@@ -1,13 +1,20 @@
+use anyhow::Context;
 use flexi_logger::writers::LogWriter;
-use flexi_logger::{style, DeferredNow};
+use flexi_logger::{style, DeferredNow, TS_DASHES_BLANK_COLONS_DOT_BLANK};
 use log::{LevelFilter, Record};
 use std::io::Write;
+use std::path::Path;
 
 pub struct StdErrLog;
 
-impl StdErrLog {
-    pub fn new() -> StdErrLog {
-        StdErrLog
+fn get_file_name(path: Option<&str>) -> anyhow::Result<&str> {
+    match path {
+        Some(v) => Ok(Path::new(v)
+            .file_name()
+            .context("<unnamed>")?
+            .to_str()
+            .context("<unnamed>")?),
+        None => Ok("<unnamed>"),
     }
 }
 
@@ -16,10 +23,10 @@ impl LogWriter for StdErrLog {
         let level = record.level();
         write!(
             std::io::stderr(),
-            "[{}] {} [{}:{}] {}\r\n",
-            now.now().format("%Y-%m-%d %H:%M:%S%.6f %:z"),
-            style(level, level),
-            record.file().unwrap_or("<unnamed>"),
+            "[{} {} {}:{}] {}\r\n",
+            now.format(TS_DASHES_BLANK_COLONS_DOT_BLANK),
+            style(level).paint(level.to_string()),
+            get_file_name(record.file()).unwrap_or("<unnamed>"),
             record.line().unwrap_or(0),
             record.args()
         )

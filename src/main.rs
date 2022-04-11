@@ -7,59 +7,85 @@ mod services;
 mod stdout_log;
 mod udp;
 mod users;
+mod config;
 
 use crate::kcp::{KcpConfig, KcpListener, KcpNoDelayConfig, KcpPeer};
 
 use services::ServicesManager;
-use stdout_log::StdErrLog;
 use users::*;
 use std::sync::Arc;
 use bytes::Buf;
-use flexi_logger::{Age, Cleanup, Criterion, LogTarget, Naming};
-use json::JsonValue;
 use lazy_static::lazy_static;
 use mimalloc::MiMalloc;
 use anyhow::Result;
 use structopt::*;
+use std::path::Path;
+use std::env::current_dir;
+use crate::config::Config;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 lazy_static! {
-
-    /// 配置文件
-    pub static ref SERVICE_CFG:JsonValue={
-        if let Ok(json)= std::fs::read_to_string("./service_cfg.json") {
-            json::parse(&json).unwrap()
-        }
-        else{
-            panic!("not found service_cfg.json");
+ /// 当前运行路径
+    pub static ref CURRENT_EXE_PATH:String={
+         match std::env::current_exe(){
+            Ok(path)=>{
+                if let Some(current_exe_path)= path.parent(){
+                    return current_exe_path.to_string_lossy().to_string()
+                }
+                panic!("current_exe_path get error: is none");
+            },
+            Err(err)=> panic!("current_exe_path get error:{:?}",err)
         }
     };
 
+    /// 加载网关配置
+    pub static ref CONFIG:Config={
+       let json_path= {
+            let json_path=format!("{}/service_cfg.json", CURRENT_EXE_PATH.as_str());
+            let path=Path::new(&json_path);
+            if !path.exists(){
+                let json_path=format!("{}/service_cfg.json", current_dir()
+                    .expect("not found current dir")
+                    .display());
+                let path=Path::new(&json_path);
+                if !path.exists(){
+                     panic!("not found config file:{:?}",path);
+                }else{
+                    json_path
+                }
+            }
+            else { json_path }
+        };
+        let path=Path::new(&json_path);
+        serde_json::from_str::<Config>(&std::fs::read_to_string(path)
+            .expect("not read service_cfg.json"))
+            .expect("read service_cfg.json error")
+    };
      /// 用户管理
     pub static ref USER_PEER_MANAGER: Arc<UserClientManager> = UserClientManager::new();
 
      /// 服务管理
-    pub static ref SERVICE_MANAGER:Arc<ServicesManager>=ServicesManager::new(&SERVICE_CFG,USER_PEER_MANAGER.get_handle()).unwrap();
+    pub static ref SERVICE_MANAGER:Arc<ServicesManager>=ServicesManager::new(USER_PEER_MANAGER.get_handle()).unwrap();
 
 
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    init_log_system();
+    install_log()?;
     SERVICE_MANAGER.start().await?;
     USER_PEER_MANAGER.set_service_handler(SERVICE_MANAGER.get_handler());
 
-    let timeout_second = SERVICE_CFG["clientTimeoutSeconds"].as_i64().unwrap();
+    let timeout_second = CONFIG.client_timeout_seconds as i64;
     let config=KcpConfig{
         nodelay: Some(KcpNoDelayConfig::fastest()),
         ..Default::default()
     };
 
     let kcp =
-        KcpListener::<Arc<ClientPeer>, _>::new(format!("0.0.0.0:{}",SERVICE_CFG["listenPort"].as_i32().unwrap()), config, timeout_second).await?;
+        KcpListener::<Arc<ClientPeer>, _>::new(format!("0.0.0.0:{}",CONFIG.listen_port), config, timeout_second).await?;
 
     kcp.set_kcpdrop_event_input(|conv| {
         let mut handle = USER_PEER_MANAGER.get_handle();
@@ -104,58 +130,20 @@ async fn main() -> Result<()> {
 #[derive(StructOpt, Debug)]
 #[structopt(name = "tcp gateway server")]
 #[structopt(version=version())]
-struct Opt{
+struct NavOpt{
     /// 是否显示 日志 到控制台
     #[structopt(short, long)]
-    stdlog:bool,
+    syslog:bool,
     /// 是否打印崩溃堆栈
     #[structopt(short, long)]
     backtrace:bool
 }
 
-
-
-/// 安装日及系统
-fn init_log_system() {
-    let opt=Opt::from_args();
-    if opt.backtrace{
-        std::env::set_var("RUST_BACKTRACE","1");
-    }
-
-    let mut show_std =opt.stdlog;
-    for (name, arg) in std::env::vars() {
-        if name.trim() == "STDLOG" && arg.trim() == "1" {
-            show_std = true;
-            println!("open stderr log out");
-        }
-    }
-
-    let mut log_set = LogTarget::File;
-    if show_std {
-        log_set = LogTarget::FileAndWriter(Box::new(StdErrLog::new()));
-    }
-
-    flexi_logger::Logger::with_str("debug")
-        .log_target(log_set)
-        .suffix("log")
-        .directory("logs")
-        .rotate(
-            Criterion::AgeOrSize(Age::Day, 1024 * 1024 * 5),
-            Naming::Numbers,
-            Cleanup::KeepLogFiles(30),
-        )
-        .print_message()
-        .format(flexi_logger::opt_format)
-        .set_palette("196;190;6;7;8".into())
-        .start()
-        .unwrap();
-}
-
 #[inline(always)]
-fn version()->&'static str{
+fn version() -> &'static str {
     concat! {
     "\n",
-    "==================================version info==================================",
+    "==================================version info=================================",
     "\n",
     "Build Timestamp:", env!("VERGEN_BUILD_TIMESTAMP"), "\n",
     "GIT BRANCH:", env!("VERGEN_GIT_BRANCH"), "\n",
@@ -165,4 +153,74 @@ fn version()->&'static str{
     "==================================version end==================================",
     "\n",
     }
+}
+
+
+#[cfg(all(feature = "flexi_log", not(feature = "env_log")))]
+static LOGGER_HANDLER: tokio::sync::OnceCell<flexi_logger::LoggerHandle> =
+    tokio::sync::OnceCell::const_new();
+
+fn install_log() -> Result<()> {
+    let opt = NavOpt::from_args();
+    if opt.backtrace {
+        std::env::set_var("RUST_BACKTRACE", "1");
+    }
+
+    #[cfg(all(feature = "flexi_log", not(feature = "env_log")))]
+    {
+        use flexi_logger::{Age, Cleanup, Criterion, FileSpec, Logger, Naming, WriteMode};
+
+        if opt.syslog {
+            let logger = Logger::try_with_str("trace, sqlx = error,mio=error")?
+                .log_to_file_and_writer(
+                    FileSpec::default()
+                        .directory("logs")
+                        .suppress_timestamp()
+                        .suffix("log"),
+                    Box::new(stdout_log::StdErrLog),
+                )
+                .format(flexi_logger::opt_format)
+                .rotate(
+                    Criterion::AgeOrSize(Age::Day, 1024 * 1024 * 5),
+                    Naming::Numbers,
+                    Cleanup::KeepLogFiles(30),
+                )
+                .print_message()
+                .set_palette("196;190;2;4;8".into())
+                .write_mode(WriteMode::Async)
+                .start()?;
+            LOGGER_HANDLER
+                .set(logger)
+                .map_err(|_| anyhow::anyhow!("logger set error"))?;
+        } else {
+            let logger = Logger::try_with_str("trace, sqlx = error,mio = error")?
+                .log_to_file(
+                    FileSpec::default()
+                        .directory("logs")
+                        .suppress_timestamp()
+                        .suffix("log"),
+                )
+                .format(flexi_logger::opt_format)
+                .rotate(
+                    Criterion::AgeOrSize(Age::Day, 1024 * 1024 * 5),
+                    Naming::Numbers,
+                    Cleanup::KeepLogFiles(30),
+                )
+                .print_message()
+                .write_mode(WriteMode::Async)
+                .start()?;
+            LOGGER_HANDLER
+                .set(logger)
+                .map_err(|_| anyhow::anyhow!("logger set error"))?;
+        }
+    }
+    #[cfg(all(feature = "flexi_log", feature = "env_log"))]
+    {
+        env_logger::Builder::new()
+            .filter_level(log::LevelFilter::Trace)
+            .filter_module("mio::poll", log::LevelFilter::Error)
+            .init();
+    }
+
+    Ok(())
 }
