@@ -260,7 +260,7 @@ fn decode(data:&mut [u8]){
         let key = key.as_bytes();
         if !key.is_empty() {
             let mut j = 0;
-            for item in data.iter_mut()  {
+            for item in data {
                 *item ^= key[j];
                 j += 1;
                 if j >= key.len() {
