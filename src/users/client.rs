@@ -1,4 +1,4 @@
-use crate::KcpPeer;
+use crate::{CONFIG, KcpPeer};
 use bytes::{Buf, BufMut, Bytes};
 use log::*;
 use std::net::SocketAddr;
@@ -94,7 +94,7 @@ impl ClientPeer {
                 match buff_pool.read() {
                     Ok(data) => {
                         if let Some(data) = data {
-                            input_data_vec.push(Bytes::from(data));
+                            input_data_vec.push(data);
                         } else {
                             break;
                         }
@@ -117,10 +117,10 @@ impl ClientPeer {
     }
 
     /// 数据包处理
-    async fn input_data(&self, data: Bytes) -> Result<()> {
-
+    async fn input_data(&self, mut data: Vec<u8>) -> Result<()> {
         ensure!(data.len()>4,"peer:{} data len {} < 4",self.session_id, data.len());
-        let mut reader = XBRead::new(data);
+        decode(&mut data);
+        let mut reader = XBRead::new(Bytes::from(data));
         let server_id = reader.get_u32_le();
         match server_id {
             //给网关发送数据包,默认当PING包无脑回
@@ -148,6 +148,10 @@ impl ClientPeer {
 
         Ok(())
     }
+
+
+
+
 
     /// 先发送断线包等待多少毫秒清理内存
     pub async fn kick_wait_ms(&self, mut ms: i32) -> Result<()> {
@@ -204,6 +208,7 @@ impl ClientPeer {
             writer.write(data);
             writer.set_position(0);
             writer.put_u32_le(writer.len() as u32 - 4);
+            encode(&mut writer[4..]);
             kcp_peer.send(&writer).await?;
         }
         Ok(())
@@ -219,6 +224,7 @@ impl ClientPeer {
             writer.bit7_write_u32(service_id);
             writer.set_position(0);
             writer.put_u32_le(writer.len() as u32 - 4);
+            encode(&mut writer[4..]);
             kcp_peer.send(&writer).await?;
         }
         Ok(())
@@ -234,8 +240,34 @@ impl ClientPeer {
             writer.bit7_write_u32(service_id);
             writer.set_position(0);
             writer.put_u32_le(writer.len() as u32 - 4);
+            encode(&mut writer[4..]);
             kcp_peer.send(&writer).await?;
         }
         Ok(())
     }
 }
+
+/// 加密
+#[inline]
+fn encode(data:&mut [u8]){
+    decode(data);
+}
+
+/// 解密
+#[inline]
+fn decode(data:&mut [u8]){
+    if let Some(ref key)= CONFIG.encode {
+        let key = key.as_bytes();
+        if !key.is_empty() {
+            let mut j = 0;
+            for item in data.iter_mut()  {
+                *item ^= key[j];
+                j += 1;
+                if j >= key.len() {
+                    j = 0;
+                }
+            }
+        }
+    }
+}
+

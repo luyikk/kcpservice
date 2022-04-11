@@ -2,16 +2,12 @@
   "gatewayId": 1,
   "listenPort": 20000,
   "clientTimeoutSeconds": 30,
+  "encode": "abe#sgasfesv344",
   "services": [
     {
       "serviceId": 0,
       "ip": "192.168.1.196",
-      "port": 18001
-    },
-    {
-      "serviceId": 444,
-      "ip": "192.168.1.196",
-      "port": 25000
+      "port": 18000
     }
   ]
 }
