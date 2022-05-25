@@ -898,7 +898,7 @@ impl Kcp {
         let resent = if self.fastresend > 0 {
             self.fastresend
         } else {
-            u32::max_value()
+            u32::MAX
         };
 
         let rtomin = if !self.nodelay { self.rx_rto >> 3 } else { 0 };
@@ -1037,7 +1037,7 @@ impl Kcp {
         }
 
         let mut ts_flush = self.ts_flush;
-        let mut tm_packet = u32::max_value();
+        let mut tm_packet = u32::MAX;
 
         if timediff(current, ts_flush) >= 10000 || timediff(current, ts_flush) < -10000 {
             ts_flush = current;
