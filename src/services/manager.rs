@@ -255,7 +255,8 @@ impl ServicesManager {
 
     /// 启动服务
     pub async fn start(&self) -> Result<()> {
-        for service in self.services.borrow().values() {
+        let services=self.services.borrow().values().cloned().collect::<Vec<_>>();
+        for service in services {
             service.start().await;
         }
         Ok(())
