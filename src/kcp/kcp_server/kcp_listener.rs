@@ -187,8 +187,8 @@ where
     /// 生成一个u32的conv
     #[inline]
     fn make_conv(&self) -> u32 {
-        let old = self.conv_make.fetch_add(1, Ordering::Release);
-        if old == u32::max_value() - 1 {
+        let old = self.conv_make.fetch_add(1, Ordering::Acquire);
+        if old == u32::MAX - 1 {
             self.conv_make.store(1, Ordering::Release);
         }
         old

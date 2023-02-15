@@ -1012,7 +1012,7 @@ impl Kcp {
 
         let mut slap = timediff(self.current, self.ts_flush);
 
-        if slap >= 10000 || slap < -10000 {
+        if !(-10000..10000).contains(&slap) {
             self.ts_flush = self.current;
             slap = 0;
         }

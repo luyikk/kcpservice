@@ -1,4 +1,3 @@
-#![feature(async_closure,cursor_remaining)]
 #![allow(dead_code)]
 
 mod buffer_pool;
@@ -93,7 +92,7 @@ async fn main() -> Result<()> {
     })
     .await;
 
-    kcp.set_buff_input(async move |kcp_peer, mut data| {
+    kcp.set_buff_input( |kcp_peer, mut data| async move {
         let peer = {
             let mut token = kcp_peer.token.borrow_mut();
             match token.get() {
