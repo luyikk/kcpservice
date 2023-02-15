@@ -248,12 +248,6 @@ impl Service {
                       last_ping_time,
                       self.inner.ping_delay_tick.load(Ordering::Acquire));
 
-                if let Err(er) = sender.send(XBWrite::new()) {
-                    error!(
-                        "service{} ping time out,need disconnect error:{}->{:?}",
-                        self.service_id, er, er
-                    );
-                }
             } else if let Err(er) = Self::send_ping(now, sender) {
                 error!(
                     "service{} send ping  error:{}->{:?}",
