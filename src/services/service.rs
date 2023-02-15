@@ -241,7 +241,7 @@ impl Service {
             let now = Self::timestamp();
 
             //30秒超时 单位tick 秒后 7个0
-            if last_ping_time > 0 && now - last_ping_time > 30 * 1000 * 10000 {
+            if last_ping_time > 0 && now - last_ping_time > 600 * 1000 * 10000 {
                 warn!("service:{} ping time out,shutdown it,now:{},last_ping_time:{},ping_delay_tick:{}",
                       self.service_id,
                       now,
@@ -357,7 +357,6 @@ impl Service {
                             reader.advance(session_id.0);
                             let session_id = session_id.1;
                             let delay_ms = reader.read_bit7_i32();
-                            ensure!(delay_ms.0 > 0,"service:{} read kick delay is fail", service_id);
                             reader.advance(delay_ms.0);
                             let delay_ms = delay_ms.1;
                             inner
