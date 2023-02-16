@@ -9,8 +9,6 @@ pub struct Config {
     pub listen_port: i32,
     #[serde(rename = "clientTimeoutSeconds")]
     pub client_timeout_seconds: i32,
-    #[serde(default)]
-    pub encode:Option<String>,
     pub services: Vec<ServiceConfig>,
 }
 

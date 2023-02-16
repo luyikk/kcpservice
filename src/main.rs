@@ -105,6 +105,7 @@ async fn main() -> Result<()> {
                             kcp_peer.conv,
                             Arc::downgrade(&kcp_peer),
                             service_handler,
+                            vec![]
                         ));
                         handle.create_peer(peer.clone())?;
                         token.set(Some(peer.clone()));

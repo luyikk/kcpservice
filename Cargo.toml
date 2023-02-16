@@ -9,6 +9,7 @@ edition = "2021"
 default=["flexi_log"]
 flexi_log=["flexi_logger"]
 env_log=["env_logger"]
+unity=[]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

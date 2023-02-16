@@ -1,4 +1,4 @@
-use crate::{CONFIG, KcpPeer};
+use crate::KcpPeer;
 use bytes::{Buf, BufMut, Bytes};
 use log::*;
 use std::net::SocketAddr;
@@ -20,6 +20,7 @@ pub struct ClientPeer {
     pub buff_pool: RefCell<BuffPool>,
     pub is_open_zero: AtomicBool,
     pub service_handler: ServiceHandler,
+    pub key:Vec<u8>,
 }
 
 unsafe impl Send for ClientPeer {}
@@ -37,6 +38,7 @@ impl ClientPeer {
         session_id: u32,
         kcp_peer: Weak<KcpPeer<Arc<ClientPeer>>>,
         service_handler: ServiceHandler,
+        key:Vec<u8>
     ) -> ClientPeer {
         ClientPeer {
             session_id,
@@ -44,6 +46,7 @@ impl ClientPeer {
             buff_pool: RefCell::new(BuffPool::new(512 * 1024)),
             is_open_zero: AtomicBool::new(false),
             service_handler,
+            key,
         }
     }
 
@@ -119,7 +122,7 @@ impl ClientPeer {
     /// 数据包处理
     async fn input_data(&self, mut data: Vec<u8>) -> Result<()> {
         ensure!(data.len()>4,"peer:{} data len {} < 4",self.session_id, data.len());
-        decode(&mut data);
+        decode(&mut data,&self.key);
         let mut reader = XBRead::new(Bytes::from(data));
         let server_id = reader.get_u32_le();
         match server_id {
@@ -208,7 +211,7 @@ impl ClientPeer {
             writer.write(data);
             writer.set_position(0);
             writer.put_u32_le(writer.len() as u32 - 4);
-            encode(&mut writer[4..]);
+            encode(&mut writer[4..],&self.key);
             kcp_peer.send(&writer).await?;
         }
         Ok(())
@@ -224,7 +227,7 @@ impl ClientPeer {
             writer.bit7_write_u32(service_id);
             writer.set_position(0);
             writer.put_u32_le(writer.len() as u32 - 4);
-            encode(&mut writer[4..]);
+            encode(&mut writer[4..],&self.key);
             kcp_peer.send(&writer).await?;
         }
         Ok(())
@@ -240,7 +243,7 @@ impl ClientPeer {
             writer.bit7_write_u32(service_id);
             writer.set_position(0);
             writer.put_u32_le(writer.len() as u32 - 4);
-            encode(&mut writer[4..]);
+            encode(&mut writer[4..],&self.key);
             kcp_peer.send(&writer).await?;
         }
         Ok(())
@@ -249,23 +252,20 @@ impl ClientPeer {
 
 /// 加密
 #[inline]
-fn encode(data:&mut [u8]){
-    decode(data);
+fn encode(data:&mut [u8],key:&[u8]){
+    decode(data,key);
 }
 
 /// 解密
 #[inline]
-fn decode(data:&mut [u8]){
-    if let Some(ref key)= CONFIG.encode {
-        let key = key.as_bytes();
-        if !key.is_empty() {
-            let mut j = 0;
-            for item in data {
-                *item ^= key[j];
-                j += 1;
-                if j >= key.len() {
-                    j = 0;
-                }
+fn decode(data:&mut [u8],key:&[u8]) {
+    if !key.is_empty() {
+        let mut j = 0;
+        for item in data {
+            *item ^= key[j];
+            j += 1;
+            if j >= key.len() {
+                j = 0;
             }
         }
     }

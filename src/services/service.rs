@@ -441,7 +441,13 @@ impl Service {
         writer.put_u32_le(0);
         writer.put_u32_le(session_id);
         writer.bit7_write_i32(serial);
-        writer.bit7_write_u32(typeid);
+        #[cfg(feature = "unity")]{
+            writer.bit7_write_i32(typeid as i32);
+        }
+        #[cfg(not(feature = "unity"))]{
+            writer.bit7_write_u32(typeid);
+        }
+
         writer.write(buffer);
         writer.set_position(0);
         writer.put_u32_le(writer.len() as u32 - 4);

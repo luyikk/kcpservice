@@ -175,7 +175,17 @@ impl ServicesManager {
                                 let (size, serial) = buffer.read_bit7_i32();
                                 if size > 0 {
                                     buffer.advance(size);
-                                    let (size, typeid) = buffer.read_bit7_u32();
+
+                                    let (size, typeid) ={
+                                        #[cfg(feature = "unity")]{
+                                            let (size,typeid)= buffer.read_bit7_i32();
+                                            (size,typeid as u32)
+                                        }
+                                        #[cfg(not(feature = "unity"))]{
+                                            buffer.read_bit7_u32()
+                                        }
+                                    };
+
                                     if size > 0 {
                                         buffer.advance(size);
                                         if let Some(service) = inner_service_manager
