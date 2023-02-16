@@ -104,8 +104,7 @@ async fn main() -> Result<()> {
                         let peer = Arc::new(ClientPeer::new(
                             kcp_peer.conv,
                             Arc::downgrade(&kcp_peer),
-                            service_handler,
-                            vec![]
+                            service_handler
                         ));
                         handle.create_peer(peer.clone())?;
                         token.set(Some(peer.clone()));
@@ -127,10 +126,17 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "unity")]
+static NAME:&str="kcp gateway service pb";
+
+#[cfg(not(feature = "unity"))]
+static NAME:&str="kcp gateway service";
+
+
 #[derive(Parser)]
 #[clap(
 version=version(),
-name = "kcp gateway server"
+name = NAME
 )]
 struct NavOpt{
     /// 是否显示 日志 到控制台

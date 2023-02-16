@@ -69,7 +69,11 @@ where
         //设置删除PEER通知
         let remove_kcp_listener = kcp_listener_arc.clone();
         udp_serv.set_remove_input(move |conv| {
-            remove_kcp_listener.peers.remove(&conv);
+            if conv !=0 {
+                remove_kcp_listener.peers.remove(&conv);
+            }else{
+                remove_kcp_listener.peers.clean_key();
+            }
         });
 
         //将UDP server 配置到udp_server属性中
@@ -142,9 +146,18 @@ where
                             }
                         }
                     }
+
                     sleep(Duration::from_millis(500)).await;
                     remove_vec.clear();
                     remove_peers.clear();
+
+                    if let Some(tx) = udp_server.get_msg_tx() {
+                        // 清理key
+                        if let Err(er) = tx.send(RevType::Remove(0)).await {
+                            error!("remove key error:{:?}", er)
+                        }
+                    }
+
                 }
             });
         }
@@ -188,10 +201,12 @@ where
     #[inline]
     fn make_conv(&self) -> u32 {
         let old = self.conv_make.fetch_add(1, Ordering::Acquire);
-        if old == u32::MAX - 1 {
-            self.conv_make.store(1, Ordering::Release);
+        if old==0{
+            self.conv_make.fetch_add(1, Ordering::Acquire);
+            self.conv_make.load(Ordering::Acquire)
+        }else {
+            old
         }
-        old
     }
 
     /// UDP 数据表输入
@@ -211,7 +226,8 @@ where
             // 申请CONV
             Self::make_kcp_peer(this, sender, addr, data).await?;
         } else {
-            sender.send((data, addr))?;
+            // 申请加密conv
+            Self::make_kcp_peer_by_key(this,sender,addr,data).await?;
         }
         Ok(())
     }
@@ -245,12 +261,12 @@ where
         let mut conv_data = [0; 4];
         conv_data.copy_from_slice(&data[0..4]);
         let conv = u32::from_le_bytes(conv_data);
-
+        let key=this.peers.get_key(&conv).map_or(vec![],|x|x.key);
         let kcp_peer: Arc<KcpPeer<S>> = {
             if let Some(peer) = this.peers.get(&conv) {
                 peer
             } else {
-                let peer = Self::make_kcp_peer_ptr(conv, sender, addr, this.clone()).await;
+                let peer = Self::make_kcp_peer_ptr(conv, sender, addr, key,this.clone()).await;
                 this.peers.insert(conv, peer.clone());
                 peer
             }
@@ -289,15 +305,36 @@ where
         Ok(())
     }
 
+    /// 创建一个KCP_PEER 并存入 Kcp_peers 字典中
+    /// 首先判断 是否第一次发包
+    /// 如果第一次发包 看看发的是不是 加密协议 是的话 生成一个conv id,同时配置一个key存储于UDP TOKEN中
+    #[inline]
+    async fn make_kcp_peer_by_key( this: Arc<Self>,
+                                   sender: SendUDP,
+                                   addr: SocketAddr,
+                                   data: Vec<u8>)->Result<()>{
+        let key=data.to_vec();
+        let conv = this.make_conv();
+        info!("{} make conv:{} key:{:?}", addr, conv,key);
+        this.peers.insert_key(conv,key);
+        let mut buff = BytesMut::new();
+        buff.put_u32_le(conv);
+        buff.put_slice(&data);
+        //给客户端回复
+        sender.send((buff.to_vec(), addr))?;
+        Ok(())
+    }
+
     /// 创建一个 kcp_peer_ptr
     #[inline]
     async fn make_kcp_peer_ptr(
         conv: u32,
         sender: SendUDP,
         addr: SocketAddr,
+        key:Vec<u8>,
         this: Arc<KcpListener<S, R>>,
     ) -> Arc<KcpPeer<S>> {
-        let mut kcp = Kcp::new(conv, sender, addr);
+        let mut kcp = Kcp::new(conv, sender, addr,key);
         let tx = this.udp_server.get().unwrap().get_msg_tx().unwrap();
         this.config.apply_config(&mut kcp);
 

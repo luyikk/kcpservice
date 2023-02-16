@@ -125,14 +125,37 @@ impl KcpSegment {
     }
 }
 
-struct KcpOutput(pub SendUDP, pub SocketAddr);
+struct KcpOutput(pub SendUDP, pub SocketAddr,pub Vec<u8>);
 
 impl KcpOutput {
     pub fn send(&self, data: &[u8]) -> io::Result<usize> {
-        if let Err(er) = self.0.send((data.to_vec(), self.1)) {
+        let mut data=data.to_vec();
+        Self::encode(&mut data[4..],&self.2);
+        if let Err(er) = self.0.send((data, self.1)) {
             return Err(io::Error::new(ErrorKind::Other, er));
         }
         Ok(0)
+    }
+
+    /// 加密
+    #[inline]
+    fn encode(data: &mut [u8], key: &[u8]) {
+        Self::decode(data, key);
+    }
+
+    /// 解密
+    #[inline]
+    fn decode(data: &mut [u8], key: &[u8]) {
+        if !key.is_empty() {
+            let mut j = 0;
+            for item in data {
+                *item ^= key[j];
+                j += 1;
+                if j >= key.len() {
+                    j = 0;
+                }
+            }
+        }
     }
 }
 
@@ -229,19 +252,19 @@ impl Kcp {
     /// `output` is the callback object for writing.
     ///
     /// `conv` represents conversation.
-    pub fn new(conv: u32, output: SendUDP, addr: SocketAddr) -> Self {
-        Kcp::construct(conv, output, addr, false)
+    pub fn new(conv: u32, output: SendUDP, addr: SocketAddr,key:Vec<u8>) -> Self {
+        Kcp::construct(conv, output, addr, key,false)
     }
 
     /// Creates a KCP control object in stream mode, `conv` must be equal in both endpoints in one connection.
     /// `output` is the callback object for writing.
     ///
     /// `conv` represents conversation.
-    pub fn new_stream(conv: u32, output: SendUDP, addr: SocketAddr, stream: bool) -> Self {
-        Kcp::construct(conv, output, addr, stream)
+    pub fn new_stream(conv: u32, output: SendUDP, addr: SocketAddr,key:Vec<u8>, stream: bool) -> Self {
+        Kcp::construct(conv, output, addr, key,stream)
     }
 
-    fn construct(conv: u32, output: SendUDP, addr: SocketAddr, stream: bool) -> Self {
+    fn construct(conv: u32, output: SendUDP, addr: SocketAddr,key:Vec<u8>, stream: bool) -> Self {
         Kcp {
             conv,
             snd_una: 0,
@@ -280,7 +303,7 @@ impl Kcp {
             ts_flush: KCP_INTERVAL,
             ssthresh: KCP_THRESH_INIT,
             input_conv: false,
-            output: KcpOutput(output, addr),
+            output: KcpOutput(output, addr,key),
         }
     }
 
