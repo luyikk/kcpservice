@@ -7,6 +7,11 @@ use std::path::Path;
 
 pub struct StdErrLog;
 
+impl StdErrLog {
+    pub fn new() -> StdErrLog {
+        StdErrLog
+    }
+}
 fn get_file_name(path: Option<&str>) -> anyhow::Result<&str> {
     match path {
         Some(v) => Ok(Path::new(v)
@@ -19,6 +24,7 @@ fn get_file_name(path: Option<&str>) -> anyhow::Result<&str> {
 }
 
 impl LogWriter for StdErrLog {
+    #[inline]
     fn write(&self, now: &mut DeferredNow, record: &Record) -> std::io::Result<()> {
         let level = record.level();
         write!(

@@ -17,7 +17,7 @@ use bytes::Buf;
 use lazy_static::lazy_static;
 use mimalloc::MiMalloc;
 use anyhow::Result;
-use structopt::*;
+use clap::Parser;
 use std::path::Path;
 use std::env::current_dir;
 use crate::config::Config;
@@ -126,15 +126,17 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-#[derive(StructOpt, Debug)]
-#[structopt(name = "tcp gateway server")]
-#[structopt(version=version())]
+#[derive(Parser)]
+#[clap(
+version=version(),
+name = "kcp gateway server"
+)]
 struct NavOpt{
     /// 是否显示 日志 到控制台
-    #[structopt(short, long)]
+    #[clap(short, long, value_parser)]
     syslog:bool,
     /// 是否打印崩溃堆栈
-    #[structopt(short, long)]
+    #[clap(short, long, value_parser, default_value_t = true)]
     backtrace:bool
 }
 
@@ -145,6 +147,7 @@ fn version() -> &'static str {
     "==================================version info=================================",
     "\n",
     "Build Timestamp:", env!("VERGEN_BUILD_TIMESTAMP"), "\n",
+    "Build System:",env!("VERGEN_SYSINFO_OS_VERSION"), "\n",
     "GIT BRANCH:", env!("VERGEN_GIT_BRANCH"), "\n",
     "GIT COMMIT DATE:", env!("VERGEN_GIT_COMMIT_TIMESTAMP"), "\n",
     "GIT SHA:", env!("VERGEN_GIT_SHA"), "\n",
@@ -160,7 +163,7 @@ static LOGGER_HANDLER: tokio::sync::OnceCell<flexi_logger::LoggerHandle> =
     tokio::sync::OnceCell::const_new();
 
 fn install_log() -> Result<()> {
-    let opt = NavOpt::from_args();
+    let opt = NavOpt::parse();
     if opt.backtrace {
         std::env::set_var("RUST_BACKTRACE", "1");
     }

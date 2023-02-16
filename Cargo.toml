@@ -15,23 +15,23 @@ tokio = { version = "1", features = ["full"] }
 net2 = "0.2"
 num_cpus="1.8"
 log="0.4"
-bytes = "0.5.6"
+bytes = "0.5"
 chrono="0.4"
 mimalloc = "0.1"
-ahash = "0.7"
+ahash = "0.8"
 xbinary = "0.1.5"
 async-trait = "0.1"
 async-mutex = "1.4"
 lazy_static = "1.4"
 serde={version="1",features=["derive"]}
 serde_json="1"
-flexi_logger={version="0.22",features=["async","use_chrono_for_offset"],optional =true}
-env_logger = {version="0.9",optional =true}
+flexi_logger={version= "0.25",features=["async"],optional =true}
+env_logger = {version= "0.10",optional =true}
 anyhow="1.0"
-structopt="0.3"
+clap = { version = "4", features = ["derive"] }
 
 [build-dependencies]
-vergen = "5"
+vergen = "7"
 anyhow = "1"
 
 [profile.release]
