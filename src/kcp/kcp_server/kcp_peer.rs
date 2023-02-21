@@ -25,7 +25,7 @@ impl KcpLock {
     }
 
     #[inline]
-    pub async fn input(&self, buf: &[u8]) -> KcpResult<usize> {
+    pub async fn input(&self, buf: &mut [u8]) -> KcpResult<usize> {
         self.0.lock().await.input(buf)
     }
 
@@ -106,7 +106,7 @@ impl<T: Send> KcpPeer<T> {
         self.kcp.peeksize().await
     }
 
-    pub(crate) async fn input(&self, buf: &[u8]) -> KcpResult<usize> {
+    pub(crate) async fn input(&self, buf: &mut [u8]) -> KcpResult<usize> {
         self.next_update_time.store(0, Ordering::Release);
         self.kcp.input(buf).await
     }

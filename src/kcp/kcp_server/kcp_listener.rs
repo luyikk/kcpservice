@@ -217,10 +217,10 @@ where
         this: Arc<Self>,
         sender: SendUDP,
         addr: SocketAddr,
-        data: Vec<u8>,
+        mut data: Vec<u8>,
     ) -> Result<()> {
         if data.len() >= 24 {
-            let kcp_peer = Self::get_kcp_peer_and_input(&this, sender, addr, &data).await;
+            let kcp_peer = Self::get_kcp_peer_and_input(&this, sender, addr, &mut data).await;
             Self::recv_buff(this, kcp_peer).await?;
         } else if data.len() == 4 {
             // 申请CONV
@@ -256,25 +256,27 @@ where
         this: &Arc<Self>,
         sender: SendUDP,
         addr: SocketAddr,
-        data: &[u8],
+        data: &mut [u8],
     ) -> Arc<KcpPeer<S>> {
         let mut conv_data = [0; 4];
         conv_data.copy_from_slice(&data[0..4]);
         let conv = u32::from_le_bytes(conv_data);
-        let key=this.peers.get_key(&conv).map_or(vec![],|x|x.key);
+
         let kcp_peer: Arc<KcpPeer<S>> = {
             if let Some(peer) = this.peers.get(&conv) {
                 peer
             } else {
-                let peer = Self::make_kcp_peer_ptr(conv, sender, addr, key,this.clone()).await;
+                let key = this.peers.get_key(&conv).map_or(vec![], |x| x.key);
+                let peer = Self::make_kcp_peer_ptr(conv, sender, addr, key, this.clone()).await;
                 this.peers.insert(conv, peer.clone());
                 peer
             }
         };
 
         if let Err(er) = kcp_peer.input(data).await {
-            error!("get_kcp_peer input is err:{}", er);
+            error!("1 get_kcp_peer input is err:{}", er);
         }
+
 
         kcp_peer
             .last_rev_time
@@ -377,5 +379,20 @@ where
         };
 
         Arc::new(kcp_peer_obj)
+    }
+}
+
+/// 解密
+#[inline]
+fn decode(data: &mut [u8], key: &[u8]) {
+    if !key.is_empty() {
+        let mut j = 0;
+        for item in data {
+            *item ^= key[j];
+            j += 1;
+            if j >= key.len() {
+                j = 0;
+            }
+        }
     }
 }

@@ -140,18 +140,27 @@ impl KcpOutput {
     /// 加密
     #[inline]
     fn encode(data: &mut [u8], key: &[u8]) {
-        Self::decode(data, key);
-    }
-
-    /// 解密
-    #[inline]
-    fn decode(data: &mut [u8], key: &[u8]) {
         if !key.is_empty() {
             let mut j = 0;
             for item in data {
                 *item ^= key[j];
                 j += 1;
                 if j >= key.len() {
+                    j = 0;
+                }
+            }
+        }
+    }
+
+    /// 解密
+    #[inline]
+    fn decode(&self,data: &mut [u8]) {
+        if !self.2.is_empty() {
+            let mut j = 0;
+            for item in data {
+                *item ^= self.2[j];
+                j += 1;
+                if j >= self.2.len() {
                     j = 0;
                 }
             }
@@ -603,7 +612,10 @@ impl Kcp {
     }
 
     /// Call this when you received a packet from raw connection
-    pub fn input(&mut self, buf: &[u8]) -> KcpResult<usize> {
+    pub fn input(&mut self, buf: &mut [u8]) -> KcpResult<usize> {
+
+        self.output.decode(&mut buf[4..]);
+
         let input_size = buf.len();
 
         trace!("[RI] {} bytes", buf.len());
