@@ -1,17 +1,17 @@
 use crate::KcpPeer;
+use anyhow::{ensure, Result};
 use bytes::{Buf, BufMut, Bytes};
 use log::*;
 use std::net::SocketAddr;
 use std::sync::{Arc, Weak};
 use xbinary::*;
-use anyhow::{ensure, Result};
 
 use super::super::buffer_pool::BuffPool;
 use super::super::services::ServiceHandler;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::time::sleep;
 use std::time::Duration;
+use tokio::time::sleep;
 
 /// 玩家PEER
 pub struct ClientPeer {
@@ -36,14 +36,14 @@ impl ClientPeer {
     pub fn new(
         session_id: u32,
         kcp_peer: Weak<KcpPeer<Arc<ClientPeer>>>,
-        service_handler: ServiceHandler
+        service_handler: ServiceHandler,
     ) -> ClientPeer {
         ClientPeer {
             session_id,
             kcp_peer,
             buff_pool: RefCell::new(BuffPool::new(512 * 1024)),
             is_open_zero: AtomicBool::new(false),
-            service_handler
+            service_handler,
         }
     }
 
@@ -118,7 +118,12 @@ impl ClientPeer {
 
     /// 数据包处理
     async fn input_data(&self, data: Vec<u8>) -> Result<()> {
-        ensure!(data.len()>4,"peer:{} data len {} < 4",self.session_id, data.len());
+        ensure!(
+            data.len() > 4,
+            "peer:{} data len {} < 4",
+            self.session_id,
+            data.len()
+        );
         let mut reader = XBRead::new(Bytes::from(data));
         let server_id = reader.get_u32_le();
         match server_id {
@@ -148,29 +153,24 @@ impl ClientPeer {
         Ok(())
     }
 
-
-
-
-
     /// 先发送断线包等待多少毫秒清理内存
     pub async fn kick_wait_ms(&self, mut ms: i32) -> Result<()> {
         if ms == 3111 {
             self.disconnect_now()?;
         } else {
             self.send_close(0).await?;
-            let session_id=self.session_id;
-            let kcp_weak= self.kcp_peer.clone();
+            let session_id = self.session_id;
+            let kcp_weak = self.kcp_peer.clone();
             tokio::spawn(async move {
-                if !(0..=30000).contains(&ms){
-                    ms=5000;
+                if !(0..=30000).contains(&ms) {
+                    ms = 5000;
                 }
                 sleep(Duration::from_millis(ms as u64)).await;
-                info!("start kick peer:{}",session_id);
-                if let Some(kcp_peer)=kcp_weak.upgrade(){
+                info!("start kick peer:{}", session_id);
+                if let Some(kcp_peer) = kcp_weak.upgrade() {
                     kcp_peer.disconnect();
                 }
             });
-
         }
         Ok(())
     }

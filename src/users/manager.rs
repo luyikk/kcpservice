@@ -1,5 +1,6 @@
 use super::super::services::ServiceHandler;
 use super::client::ClientPeer;
+use ahash::AHashMap;
 use log::*;
 use std::cell::RefCell;
 use std::fmt::{Debug, Formatter};
@@ -8,7 +9,6 @@ use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use xbinary::XBRead;
 use ClientHandleCmd::*;
-use ahash::AHashMap;
 
 pub enum ClientHandleCmd {
     CreatePeer(Arc<ClientPeer>),
@@ -17,7 +17,7 @@ pub enum ClientHandleCmd {
     ClosePeer(u32, u32),
     KickPeer(u32, u32, i32),
     SendBuffer(u32, u32, XBRead),
-    CloseAllPlayer(u32,Vec<u32>),
+    CloseAllPlayer(u32, Vec<u32>),
 }
 
 impl Debug for ClientHandleCmd {
@@ -53,11 +53,11 @@ impl Debug for ClientHandleCmd {
                 .field("session_id", session_id)
                 .field("buff", &buff.to_vec())
                 .finish(),
-            CloseAllPlayer(server_id,users) =>f
+            CloseAllPlayer(server_id, users) => f
                 .debug_struct("DropAllPlayer")
-                .field("server_id",server_id)
-                .field("users",users)
-                .finish()
+                .field("server_id", server_id)
+                .field("users", users)
+                .finish(),
         }
     }
 }
@@ -75,8 +75,8 @@ impl ClientHandle {
     }
 
     /// 于服务器断开连接时通知客户端CLOSE
-    pub fn close_all_user(&mut self,service_id:u32,users:Vec<u32>) -> ClientHandleError{
-        self.tx.send(CloseAllPlayer(service_id,users))
+    pub fn close_all_user(&mut self, service_id: u32, users: Vec<u32>) -> ClientHandleError {
+        self.tx.send(CloseAllPlayer(service_id, users))
     }
 
     ///创建客户端
@@ -225,12 +225,15 @@ impl UserClientManager {
                                 )
                             }
                         }
-                    },
-                    CloseAllPlayer(service_id,users) =>{
+                    }
+                    CloseAllPlayer(service_id, users) => {
                         for session_id in users {
                             if let Some(peer) = manager.get_peer(&session_id) {
                                 if let Err(er) = peer.close_service(service_id).await {
-                                    warn!("CloseAllPlayer service:{} peer:{} err:{}", service_id, session_id, er);
+                                    warn!(
+                                        "CloseAllPlayer service:{} peer:{} err:{}",
+                                        service_id, session_id, er
+                                    );
                                 }
                             }
                         }

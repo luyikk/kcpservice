@@ -1,26 +1,26 @@
 #![allow(dead_code)]
 
 mod buffer_pool;
+mod config;
 mod kcp;
 mod services;
 mod stdout_log;
 mod udp;
 mod users;
-mod config;
 
 use crate::kcp::{KcpConfig, KcpListener, KcpNoDelayConfig, KcpPeer};
 
-use services::ServicesManager;
-use users::*;
-use std::sync::Arc;
+use crate::config::Config;
+use anyhow::Result;
 use bytes::Buf;
+use clap::Parser;
 use lazy_static::lazy_static;
 use mimalloc::MiMalloc;
-use anyhow::Result;
-use clap::Parser;
-use std::path::Path;
+use services::ServicesManager;
 use std::env::current_dir;
-use crate::config::Config;
+use std::path::Path;
+use std::sync::Arc;
+use users::*;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -78,13 +78,17 @@ async fn main() -> Result<()> {
     USER_PEER_MANAGER.set_service_handler(SERVICE_MANAGER.get_handler());
 
     let timeout_second = CONFIG.client_timeout_seconds as i64;
-    let config=KcpConfig{
+    let config = KcpConfig {
         nodelay: Some(KcpNoDelayConfig::fastest()),
         ..Default::default()
     };
 
-    let kcp =
-        KcpListener::<Arc<ClientPeer>, _>::new(format!("0.0.0.0:{}",CONFIG.listen_port), config, timeout_second).await?;
+    let kcp = KcpListener::<Arc<ClientPeer>, _>::new(
+        format!("0.0.0.0:{}", CONFIG.listen_port),
+        config,
+        timeout_second,
+    )
+    .await?;
 
     kcp.set_kcpdrop_event_input(|conv| {
         let mut handle = USER_PEER_MANAGER.get_handle();
@@ -92,7 +96,7 @@ async fn main() -> Result<()> {
     })
     .await;
 
-    kcp.set_buff_input( |kcp_peer, mut data| async move {
+    kcp.set_buff_input(|kcp_peer, mut data| async move {
         let peer = {
             let mut token = kcp_peer.token.borrow_mut();
             match token.get() {
@@ -104,7 +108,7 @@ async fn main() -> Result<()> {
                         let peer = Arc::new(ClientPeer::new(
                             kcp_peer.conv,
                             Arc::downgrade(&kcp_peer),
-                            service_handler
+                            service_handler,
                         ));
                         handle.create_peer(peer.clone())?;
                         token.set(Some(peer.clone()));
@@ -127,24 +131,23 @@ async fn main() -> Result<()> {
 }
 
 #[cfg(feature = "unity")]
-static NAME:&str="kcp gateway service pb";
+static NAME: &str = "kcp gateway service pb";
 
 #[cfg(not(feature = "unity"))]
-static NAME:&str="kcp gateway service";
-
+static NAME: &str = "kcp gateway service";
 
 #[derive(Parser)]
 #[clap(
 version=version(),
 name = NAME
 )]
-struct NavOpt{
+struct NavOpt {
     /// 是否显示 日志 到控制台
     #[clap(short, long, value_parser)]
-    syslog:bool,
+    syslog: bool,
     /// 是否打印崩溃堆栈
     #[clap(short, long, value_parser, default_value_t = true)]
-    backtrace:bool
+    backtrace: bool,
 }
 
 #[inline(always)]
@@ -163,7 +166,6 @@ fn version() -> &'static str {
     "\n",
     }
 }
-
 
 #[cfg(all(feature = "flexi_log", not(feature = "env_log")))]
 static LOGGER_HANDLER: tokio::sync::OnceCell<flexi_logger::LoggerHandle> =

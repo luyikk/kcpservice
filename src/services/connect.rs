@@ -13,7 +13,7 @@ use xbinary::XBWrite;
 pub enum ConnectCmd {
     Buff(Vec<u8>),
     DropClient(u32),
-    Disconnect
+    Disconnect,
 }
 
 pub struct Connect {

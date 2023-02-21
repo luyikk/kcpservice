@@ -1,20 +1,20 @@
 use super::super::users::ClientHandle;
 use super::Service;
+use crate::config::ServiceConfig;
+use crate::CONFIG;
 use ahash::AHashMap;
+use anyhow::*;
 use bytes::Buf;
 use log::*;
 use std::cell::RefCell;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::time::sleep;
 use xbinary::XBRead;
 use ServicesCmd::*;
-use std::time::Duration;
-use anyhow::*;
-use crate::CONFIG;
-use crate::config::ServiceConfig;
 
 /// 服务器操作命令
 pub enum ServicesCmd {
@@ -109,9 +109,7 @@ unsafe impl Sync for ServicesManager {}
 unsafe impl Send for ServicesManager {}
 
 impl ServicesManager {
-    pub fn new(
-        client_handler: ClientHandle,
-    ) -> Result<Arc<ServicesManager>> {
+    pub fn new(client_handler: ClientHandle) -> Result<Arc<ServicesManager>> {
         let (tx, mut rx) = unbounded_channel();
 
         let servers = ServicesManager {
@@ -176,12 +174,14 @@ impl ServicesManager {
                                 if size > 0 {
                                     buffer.advance(size);
 
-                                    let (size, typeid) ={
-                                        #[cfg(feature = "unity")]{
-                                            let (size,typeid)= buffer.read_bit7_i32();
-                                            (size,typeid as u32)
+                                    let (size, typeid) = {
+                                        #[cfg(feature = "unity")]
+                                        {
+                                            let (size, typeid) = buffer.read_bit7_i32();
+                                            (size, typeid as u32)
                                         }
-                                        #[cfg(not(feature = "unity"))]{
+                                        #[cfg(not(feature = "unity"))]
+                                        {
                                             buffer.read_bit7_u32()
                                         }
                                     };
@@ -220,10 +220,11 @@ impl ServicesManager {
                     }
                     //客户端断线
                     DropClientPeer(session_id) => {
-                        let send_drop_services:Vec<Arc<Service>> = inner_service_manager.services.borrow().values()
-                            .filter(|service|{
-                                service.have_session_id(session_id)
-                            })
+                        let send_drop_services: Vec<Arc<Service>> = inner_service_manager
+                            .services
+                            .borrow()
+                            .values()
+                            .filter(|service| service.have_session_id(session_id))
                             .cloned()
                             .collect();
 
@@ -233,13 +234,11 @@ impl ServicesManager {
                                     error! {"DropClientPeer error service {} session_id:{} error:{}->{:?}", service.service_id, session_id, er, er}
                                 }
                             }
-                        }
-                        else if let Some(service) = inner_service_manager.get_service(&0) {
+                        } else if let Some(service) = inner_service_manager.get_service(&0) {
                             if let Err(er) = service.client_drop(session_id).await {
                                 error! {"DropClientPeer error main service 0 session_id:{} error:{}->{:?}", session_id, er, er}
                             }
                         }
-
                     }
                     CheckPing => {
                         for service in inner_service_manager.services.borrow().values() {
@@ -265,7 +264,7 @@ impl ServicesManager {
 
     /// 启动服务
     pub async fn start(&self) -> Result<()> {
-        let services=self.services.borrow().values().cloned().collect::<Vec<_>>();
+        let services = self.services.borrow().values().cloned().collect::<Vec<_>>();
         for service in services {
             service.start().await;
         }

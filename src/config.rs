@@ -12,7 +12,7 @@ pub struct Config {
     pub services: Vec<ServiceConfig>,
 }
 
-#[derive(Deserialize, Debug,Clone)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct ServiceConfig {
     #[serde(rename = "serviceId")]
     pub service_id: u32,

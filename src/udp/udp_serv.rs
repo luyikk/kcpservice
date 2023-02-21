@@ -1,4 +1,5 @@
 use super::send::{SendPool, SendUDP};
+use anyhow::{anyhow, Result};
 use net2::{UdpBuilder, UdpSocketExt};
 use std::cell::{RefCell, UnsafeCell};
 use std::convert::TryFrom;
@@ -8,7 +9,6 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{channel, Sender, UnboundedSender};
 use tokio::sync::Mutex;
-use anyhow::{anyhow, Result};
 
 #[cfg(not(target_os = "windows"))]
 use net2::unix::UnixUdpBuilderExt;
@@ -59,7 +59,7 @@ pub struct UdpServer<I, R, S> {
     error_input: Option<ErrorInput>,
     remove_event: Option<Box<dyn Fn(u32)>>,
     msg_tx: UnsafeCell<Option<Sender<RevType>>>,
-    phantom:PhantomData<R>
+    phantom: PhantomData<R>,
 }
 
 unsafe impl<I, R, S> Send for UdpServer<I, R, S> {}
@@ -144,9 +144,7 @@ where
     }
 
     ///创建udp socket,并设置buffer 大小
-    fn create_udp_socket<A: ToSocketAddrs>(
-        addr: &A,
-    ) -> Result<std::net::UdpSocket> {
+    fn create_udp_socket<A: ToSocketAddrs>(addr: &A) -> Result<std::net::UdpSocket> {
         let res = Self::make_udp_client(addr)?;
         res.set_send_buffer_size(1784 * 10000)?;
         res.set_recv_buffer_size(1784 * 10000)?;
@@ -189,10 +187,7 @@ where
     /// 创建UdpServer
     /// 如果是linux 是系统,他会根据CPU核心数创建等比的UDP SOCKET 监听同一端口
     /// 已达到 M级的DPS 数量
-    pub async fn new_inner<A: ToSocketAddrs>(
-        addr: A,
-        inner: Arc<S>,
-    ) -> Result<Self> {
+    pub async fn new_inner<A: ToSocketAddrs>(addr: A, inner: Arc<S>) -> Result<Self> {
         let udp_list = Self::create_udp_socket_list(&addr, Self::get_cpu_count())?;
         let mut udp_map = vec![];
         let mut id = 1;
@@ -213,7 +208,7 @@ where
             error_input: None,
             msg_tx: UnsafeCell::new(None),
             remove_event: None,
-            phantom:PhantomData::default()
+            phantom: PhantomData::default(),
         })
     }
 
@@ -285,17 +280,19 @@ where
                         loop {
                             match recv_sock.recv_from(&mut buff).await {
                                 Ok((size, addr)) => {
-                                    if let Err(er) = move_data_tx.send(RevType::Input(
-                                        send_sock.clone(),
-                                        addr,
-                                        buff[..size].to_vec(),
-                                    )).await
+                                    if let Err(er) = move_data_tx
+                                        .send(RevType::Input(
+                                            send_sock.clone(),
+                                            addr,
+                                            buff[..size].to_vec(),
+                                        ))
+                                        .await
                                     {
                                         let error = error_input.lock().await;
                                         let _ = error(Some(addr), anyhow!(er));
                                         break;
                                     }
-                                },
+                                }
                                 Err(er) => {
                                     let error = error_input.lock().await;
                                     let stop = error(None, anyhow!(er));
@@ -314,14 +311,13 @@ where
             while let Some(recv_type) = rx.recv().await {
                 match recv_type {
                     RevType::Input(send_sock, addr, data) => {
-                        if let Err(er) = input(self.inner.clone(), send_sock, addr, data).await{
+                        if let Err(er) = input(self.inner.clone(), send_sock, addr, data).await {
                             let error = err_input.lock().await;
                             let stop = error(Some(addr), er);
                             if stop {
                                 break;
                             }
                         }
-
                     }
                     RevType::Remove(ids) => {
                         if let Some(ref remove_input) = self.remove_event {

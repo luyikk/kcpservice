@@ -125,12 +125,12 @@ impl KcpSegment {
     }
 }
 
-struct KcpOutput(pub SendUDP, pub SocketAddr,pub Vec<u8>);
+struct KcpOutput(pub SendUDP, pub SocketAddr, pub Vec<u8>);
 
 impl KcpOutput {
     pub fn send(&self, data: &[u8]) -> io::Result<usize> {
-        let mut data=data.to_vec();
-        Self::encode(&mut data[4..],&self.2);
+        let mut data = data.to_vec();
+        Self::encode(&mut data[4..], &self.2);
         if let Err(er) = self.0.send((data, self.1)) {
             return Err(io::Error::new(ErrorKind::Other, er));
         }
@@ -154,7 +154,7 @@ impl KcpOutput {
 
     /// 解密
     #[inline]
-    fn decode(&self,data: &mut [u8]) {
+    fn decode(&self, data: &mut [u8]) {
         if !self.2.is_empty() {
             let mut j = 0;
             for item in data {
@@ -261,19 +261,25 @@ impl Kcp {
     /// `output` is the callback object for writing.
     ///
     /// `conv` represents conversation.
-    pub fn new(conv: u32, output: SendUDP, addr: SocketAddr,key:Vec<u8>) -> Self {
-        Kcp::construct(conv, output, addr, key,false)
+    pub fn new(conv: u32, output: SendUDP, addr: SocketAddr, key: Vec<u8>) -> Self {
+        Kcp::construct(conv, output, addr, key, false)
     }
 
     /// Creates a KCP control object in stream mode, `conv` must be equal in both endpoints in one connection.
     /// `output` is the callback object for writing.
     ///
     /// `conv` represents conversation.
-    pub fn new_stream(conv: u32, output: SendUDP, addr: SocketAddr,key:Vec<u8>, stream: bool) -> Self {
-        Kcp::construct(conv, output, addr, key,stream)
+    pub fn new_stream(
+        conv: u32,
+        output: SendUDP,
+        addr: SocketAddr,
+        key: Vec<u8>,
+        stream: bool,
+    ) -> Self {
+        Kcp::construct(conv, output, addr, key, stream)
     }
 
-    fn construct(conv: u32, output: SendUDP, addr: SocketAddr,key:Vec<u8>, stream: bool) -> Self {
+    fn construct(conv: u32, output: SendUDP, addr: SocketAddr, key: Vec<u8>, stream: bool) -> Self {
         Kcp {
             conv,
             snd_una: 0,
@@ -312,7 +318,7 @@ impl Kcp {
             ts_flush: KCP_INTERVAL,
             ssthresh: KCP_THRESH_INIT,
             input_conv: false,
-            output: KcpOutput(output, addr,key),
+            output: KcpOutput(output, addr, key),
         }
     }
 
@@ -613,7 +619,6 @@ impl Kcp {
 
     /// Call this when you received a packet from raw connection
     pub fn input(&mut self, buf: &mut [u8]) -> KcpResult<usize> {
-
         self.output.decode(&mut buf[4..]);
 
         let input_size = buf.len();
@@ -634,7 +639,7 @@ impl Kcp {
         let old_una = self.snd_una;
 
         let mut buf = Cursor::new(buf);
-        while buf.remaining() >= KCP_OVERHEAD  {
+        while buf.remaining() >= KCP_OVERHEAD {
             let conv = buf.get_u32_le();
             if conv != self.conv {
                 // This allows getting conv from this call, which allows us to allocate
@@ -657,7 +662,7 @@ impl Kcp {
             let una = buf.get_u32_le();
             let len = buf.get_u32_le() as usize;
 
-            if buf.remaining()< len {
+            if buf.remaining() < len {
                 debug!(
                     "input bufsize={} payload length={} remaining={} not match",
                     input_size,
@@ -864,7 +869,7 @@ impl Kcp {
         // segment.wnd = self.wnd_unused();
         // segment.una = self.rcv_nxt;
 
-        let mut segment=KcpSegment {
+        let mut segment = KcpSegment {
             conv: self.conv,
             cmd: KCP_CMD_ACK,
             wnd: self.wnd_unused(),
@@ -888,11 +893,11 @@ impl Kcp {
         // segment.wnd = self.wnd_unused();
         // segment.una = self.rcv_nxt;
 
-        let mut segment=KcpSegment{
+        let mut segment = KcpSegment {
             conv: self.conv,
             cmd: KCP_CMD_ACK,
-            wnd:self.wnd_unused(),
-            una:self.rcv_nxt,
+            wnd: self.wnd_unused(),
+            una: self.rcv_nxt,
             ..Default::default()
         };
 

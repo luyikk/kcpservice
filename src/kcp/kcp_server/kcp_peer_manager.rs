@@ -5,16 +5,14 @@ use std::collections::hash_map::{Keys, Values};
 use std::sync::Arc;
 use std::time::Instant;
 
-
-pub struct KcpKey{
-    pub key:Vec<u8>,
-    pub time:Instant
+pub struct KcpKey {
+    pub key: Vec<u8>,
+    pub time: Instant,
 }
-
 
 pub struct KcpPeerManager<S> {
     pub kcp_peers: UnsafeCell<AHashMap<u32, Arc<KcpPeer<S>>>>,
-    pub kcp_keys: UnsafeCell<AHashMap<u32,KcpKey>>,
+    pub kcp_keys: UnsafeCell<AHashMap<u32, KcpKey>>,
 }
 
 unsafe impl<S> Send for KcpPeerManager<S> {}
@@ -54,24 +52,25 @@ impl<S: Send> KcpPeerManager<S> {
         unsafe { (*self.kcp_peers.get()).remove(conv) }
     }
 
-    pub fn insert_key(&self,conv:u32,key:Vec<u8>){
-        unsafe{
-            (*self.kcp_keys.get()).insert(conv,KcpKey{
-                key,
-                time:Instant::now()
-            });
+    pub fn insert_key(&self, conv: u32, key: Vec<u8>) {
+        unsafe {
+            (*self.kcp_keys.get()).insert(
+                conv,
+                KcpKey {
+                    key,
+                    time: Instant::now(),
+                },
+            );
         }
     }
 
-    pub fn get_key(&self,conv:&u32)->Option<KcpKey>{
-        unsafe{
-            (*self.kcp_keys.get()).remove(conv)
-        }
+    pub fn get_key(&self, conv: &u32) -> Option<KcpKey> {
+        unsafe { (*self.kcp_keys.get()).remove(conv) }
     }
 
-    pub fn clean_key(&self){
-        unsafe{
-            (*self.kcp_keys.get()).retain(|_,k|k.time.elapsed().as_secs()<10);
+    pub fn clean_key(&self) {
+        unsafe {
+            (*self.kcp_keys.get()).retain(|_, k| k.time.elapsed().as_secs() < 10);
         }
     }
 }

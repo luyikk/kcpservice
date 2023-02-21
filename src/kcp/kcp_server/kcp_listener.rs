@@ -5,6 +5,7 @@ use super::kcp_peer::KcpPeer;
 use super::kcp_peer_manager::KcpPeerManager;
 use super::udp_server_store::UdpServerStore;
 use crate::udp::{RevType, SendUDP, TokenStore, UdpServer};
+use anyhow::{Context, Result};
 use async_mutex::Mutex;
 use bytes::{BufMut, Bytes, BytesMut};
 use log::*;
@@ -15,7 +16,6 @@ use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
-use anyhow::{Context, Result};
 
 /// KcpListener 整个KCP 服务的入口点
 /// config 存放KCP 配置
@@ -30,8 +30,8 @@ pub struct KcpListener<S, R> {
     drop_timeout_second: i64,
 }
 
-unsafe impl<S, R> Send for KcpListener<S, R>{}
-unsafe impl<S, R> Sync for KcpListener<S, R>{}
+unsafe impl<S, R> Send for KcpListener<S, R> {}
+unsafe impl<S, R> Sync for KcpListener<S, R> {}
 
 impl<S, R> KcpListener<S, R>
 where
@@ -69,9 +69,9 @@ where
         //设置删除PEER通知
         let remove_kcp_listener = kcp_listener_arc.clone();
         udp_serv.set_remove_input(move |conv| {
-            if conv !=0 {
+            if conv != 0 {
                 remove_kcp_listener.peers.remove(&conv);
-            }else{
+            } else {
                 remove_kcp_listener.peers.clean_key();
             }
         });
@@ -99,7 +99,7 @@ where
 
     /// 启动服务
     pub async fn start(&self) -> Result<()> {
-        let udp_server=self.udp_server.get().context("udp_server is nil")?;
+        let udp_server = self.udp_server.get().context("udp_server is nil")?;
         self.update();
         self.cleanup();
         udp_server.start().await?;
@@ -157,7 +157,6 @@ where
                             error!("remove key error:{:?}", er)
                         }
                     }
-
                 }
             });
         }
@@ -201,10 +200,10 @@ where
     #[inline]
     fn make_conv(&self) -> u32 {
         let old = self.conv_make.fetch_add(1, Ordering::Acquire);
-        if old==0{
+        if old == 0 {
             self.conv_make.fetch_add(1, Ordering::Acquire);
             self.conv_make.load(Ordering::Acquire)
-        }else {
+        } else {
             old
         }
     }
@@ -227,7 +226,7 @@ where
             Self::make_kcp_peer(this, sender, addr, data).await?;
         } else {
             // 申请加密conv
-            Self::make_kcp_peer_by_key(this,sender,addr,data).await?;
+            Self::make_kcp_peer_by_key(this, sender, addr, data).await?;
         }
         Ok(())
     }
@@ -277,7 +276,6 @@ where
             error!("1 get_kcp_peer input is err:{}", er);
         }
 
-
         kcp_peer
             .last_rev_time
             .store(chrono::Local::now().timestamp(), Ordering::Release);
@@ -311,14 +309,16 @@ where
     /// 首先判断 是否第一次发包
     /// 如果第一次发包 看看发的是不是 加密协议 是的话 生成一个conv id,同时配置一个key存储于UDP TOKEN中
     #[inline]
-    async fn make_kcp_peer_by_key( this: Arc<Self>,
-                                   sender: SendUDP,
-                                   addr: SocketAddr,
-                                   data: Vec<u8>)->Result<()>{
-        let key=data.to_vec();
+    async fn make_kcp_peer_by_key(
+        this: Arc<Self>,
+        sender: SendUDP,
+        addr: SocketAddr,
+        data: Vec<u8>,
+    ) -> Result<()> {
+        let key = data.to_vec();
         let conv = this.make_conv();
-        info!("{} make conv:{} key:{:?}", addr, conv,key);
-        this.peers.insert_key(conv,key);
+        info!("{} make conv:{} key:{:?}", addr, conv, key);
+        this.peers.insert_key(conv, key);
         let mut buff = BytesMut::new();
         buff.put_u32_le(conv);
         buff.put_slice(&data);
@@ -333,10 +333,10 @@ where
         conv: u32,
         sender: SendUDP,
         addr: SocketAddr,
-        key:Vec<u8>,
+        key: Vec<u8>,
         this: Arc<KcpListener<S, R>>,
     ) -> Arc<KcpPeer<S>> {
-        let mut kcp = Kcp::new(conv, sender, addr,key);
+        let mut kcp = Kcp::new(conv, sender, addr, key);
         let tx = this.udp_server.get().unwrap().get_msg_tx().unwrap();
         this.config.apply_config(&mut kcp);
 

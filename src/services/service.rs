@@ -3,18 +3,18 @@ use super::connect::ConnectCmd;
 use super::manager::ServiceManagerHandler;
 use super::Connect;
 use ahash::AHashSet;
+use anyhow::{bail, ensure, Context, Result};
 use async_mutex::Mutex;
 use bytes::{Buf, BufMut, Bytes};
 use log::*;
-use std::cell::{UnsafeCell};
+use std::cell::UnsafeCell;
 use std::io;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::sleep;
 use xbinary::{XBRead, XBWrite};
-use std::time::Duration;
-use anyhow::{bail, Context, ensure, Result};
 
 ///用于存放发送句柄
 pub struct Sender(UnsafeCell<Option<UnboundedSender<XBWrite>>>);
@@ -28,9 +28,7 @@ impl Sender {
     }
 
     pub fn get(&self) -> Option<UnboundedSender<XBWrite>> {
-        unsafe {
-            (*self.0.get()).as_ref().cloned()
-        }
+        unsafe { (*self.0.get()).as_ref().cloned() }
     }
 
     pub fn set(&self, p: UnboundedSender<XBWrite>) {
@@ -46,12 +44,11 @@ impl Sender {
     }
 
     pub fn send(&self, data: XBWrite) -> Result<()> {
-        let sender= self.get().context("not found sender tx, check connect")?;
+        let sender = self.get().context("not found sender tx, check connect")?;
         sender.send(data)?;
         Ok(())
     }
 }
-
 
 pub struct ServiceInner {
     pub gateway_id: u32,
@@ -137,10 +134,7 @@ impl Service {
                         if let Err(er) = Self::send_register(inner.gateway_id, &inner.sender) {
                             error!("register {} gateway error:{:?}", service_id, er);
                             if let Err(er) = inner.sender.send(XBWrite::new()) {
-                                error!(
-                                    "service{}  disconnect error:{}->{:?}",
-                                     service_id, er, er
-                                );
+                                error!("service{}  disconnect error:{}->{:?}", service_id, er, er);
                             }
                             break;
                         }
@@ -165,26 +159,35 @@ impl Service {
                                         session_id, service_id
                                     );
                                     if let Some(sender) = inner.sender.get() {
-                                        if let Err(er) =
-                                        Self::send_disconnect(session_id, sender)
-                                        {
+                                        if let Err(er) = Self::send_disconnect(session_id, sender) {
                                             error!(
                                                 "send disconnect to service:{} error:{:?}",
                                                 service_id, er
                                             );
                                         }
                                     }
-                                },
-                                ConnectCmd::Disconnect=>{
+                                }
+                                ConnectCmd::Disconnect => {
                                     unsafe {
-                                        warn!("service:{} disconnect start close all users",service_id);
+                                        warn!(
+                                            "service:{} disconnect start close all users",
+                                            service_id
+                                        );
 
-                                        let need_close_ids:Vec<u32>=(*inner.open_table.get()).iter().copied().collect();
+                                        let need_close_ids: Vec<u32> =
+                                            (*inner.open_table.get()).iter().copied().collect();
 
                                         (*inner.open_table.get()).clear();
 
-                                        if let Err(er)= inner.client_handle.clone().close_all_user(service_id,need_close_ids){
-                                            error!("service:{} disconnect close all user err{}",service_id,er);
+                                        if let Err(er) = inner
+                                            .client_handle
+                                            .clone()
+                                            .close_all_user(service_id, need_close_ids)
+                                        {
+                                            error!(
+                                                "service:{} disconnect close all user err{}",
+                                                service_id, er
+                                            );
                                         }
                                     }
                                     break;
@@ -247,7 +250,6 @@ impl Service {
                       now,
                       last_ping_time,
                       self.inner.ping_delay_tick.load(Ordering::Acquire));
-
             } else if let Err(er) = Self::send_ping(now, sender) {
                 error!(
                     "service{} send ping  error:{}->{:?}",
@@ -263,11 +265,7 @@ impl Service {
     }
 
     /// 读取数据
-    async fn read_data(
-        data: Vec<u8>,
-        service_id: u32,
-        inner: &Arc<ServiceInner>,
-    ) -> Result<()> {
+    async fn read_data(data: Vec<u8>, service_id: u32, inner: &Arc<ServiceInner>) -> Result<()> {
         let mut reader = XBRead::new(Bytes::from(data));
         let session_id = reader.get_u32_le();
         if session_id == 0xFFFFFFFFu32 {
@@ -324,15 +322,16 @@ impl Service {
                                     }
                                 }
                             } else {
-                                bail!(
-                                    "service:{} read open session_id fail",
-                                    service_id
-                                )
+                                bail!("service:{} read open session_id fail", service_id)
                             }
                         }
                         "close" => {
                             let session_id = reader.read_bit7_u32();
-                            ensure!(session_id.0 > 0,"service:{} read close is fail", service_id);
+                            ensure!(
+                                session_id.0 > 0,
+                                "service:{} read close is fail",
+                                service_id
+                            );
                             reader.advance(session_id.0);
                             let session_id = session_id.1;
                             // 如果TRUE 说明还没OPEN 就被CLOSE了
@@ -348,12 +347,14 @@ impl Service {
                                     }
                                 }
                             }
-                            inner.client_handle.clone()
+                            inner
+                                .client_handle
+                                .clone()
                                 .close_peer(service_id, session_id)?;
                         }
                         "kick" => {
                             let session_id = reader.read_bit7_u32();
-                            ensure!(session_id.0 > 0,"service:{} read kick is fail", service_id);
+                            ensure!(session_id.0 > 0, "service:{} read kick is fail", service_id);
                             reader.advance(session_id.0);
                             let session_id = session_id.1;
                             let delay_ms = reader.read_bit7_i32();
@@ -441,10 +442,12 @@ impl Service {
         writer.put_u32_le(0);
         writer.put_u32_le(session_id);
         writer.bit7_write_i32(serial);
-        #[cfg(feature = "unity")]{
+        #[cfg(feature = "unity")]
+        {
             writer.bit7_write_i32(typeid as i32);
         }
-        #[cfg(not(feature = "unity"))]{
+        #[cfg(not(feature = "unity"))]
+        {
             writer.bit7_write_u32(typeid);
         }
 
@@ -470,11 +473,7 @@ impl Service {
 
     /// 发送OPEN
     #[inline]
-    fn send_open(
-        session_id: u32,
-        ipaddress: String,
-        sender: &Arc<Sender>,
-    ) -> Result<()> {
+    fn send_open(session_id: u32, ipaddress: String, sender: &Arc<Sender>) -> Result<()> {
         let mut writer = XBWrite::new();
         writer.put_u32_le(0);
         writer.put_u32_le(0xFFFFFFFFu32);
@@ -504,10 +503,7 @@ impl Service {
 
     /// 发送断线
     #[inline]
-    fn send_disconnect(
-        session_id: u32,
-        sender: UnboundedSender<XBWrite>,
-    ) -> Result<()> {
+    fn send_disconnect(session_id: u32, sender: UnboundedSender<XBWrite>) -> Result<()> {
         let mut writer = XBWrite::new();
         writer.put_u32_le(0);
         writer.put_u32_le(0xFFFFFFFFu32);
