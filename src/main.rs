@@ -182,7 +182,7 @@ fn install_log() -> Result<()> {
         use flexi_logger::{Age, Cleanup, Criterion, FileSpec, Logger, Naming, WriteMode};
 
         if opt.syslog {
-            let logger = Logger::try_with_str("trace,mio = error,kcp = error")?
+            let logger = Logger::try_with_str("debug,mio = error")?
                 .log_to_file_and_writer(
                     FileSpec::default()
                         .directory("logs")
@@ -228,8 +228,7 @@ fn install_log() -> Result<()> {
     #[cfg(all(feature = "flexi_log", feature = "env_log"))]
     {
         env_logger::Builder::new()
-            .filter_level(log::LevelFilter::Trace)
-            .filter_module("kcp", log::LevelFilter::Error)
+            .filter_level(log::LevelFilter::Debug)
             .filter_module("mio::poll", log::LevelFilter::Error)
             .init();
     }
